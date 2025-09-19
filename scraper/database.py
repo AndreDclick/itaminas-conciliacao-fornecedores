@@ -937,7 +937,7 @@ class DatabaseManager:
             query_diferenca = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
                 SET 
-                    diferenca = ROUND(COALESCE(saldo_financeiro,0) - COALESCE(saldo_contabil,0), 2),
+                    diferenca = ROUND(COALESCE(saldo_contabil,0) - COALESCE(saldo_financeiro,0), 2),
                     status = CASE 
                         WHEN saldo_contabil IS NULL AND saldo_financeiro IS NULL THEN 'Pendente'
                         WHEN ABS(COALESCE(saldo_financeiro,0) - COALESCE(saldo_contabil,0)) <= 
@@ -1117,7 +1117,7 @@ class DatabaseManager:
             logger.error(error_msg)
             return False
 
-    def _apply_metadata_styles(self, worksheet):
+    def _apply_metadata_styles(self, worksheet, metadata_items, metadata_values):
         """
         Aplica estilos à aba de metadados de forma otimizada.
         """
@@ -1243,6 +1243,12 @@ class DatabaseManager:
         Aplica estilos visuais melhorados com formatação otimizada.
         """
         try:
+            # Cores para formatação condicional (DEFINIR NO INÍCIO DO MÉTODO)
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            yellow_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+            red_font = Font(color="9C0006", bold=True)
+            
             # Define estilos
             header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True)
@@ -1281,7 +1287,11 @@ class DatabaseManager:
             # Identifica colunas de status e diferença
             status_idx = header.index("Status") + 1 if "Status" in header else None
             diferenca_idx = header.index("Diferença") + 1 if "Diferença" in header else None
-            
+            if diferenca_idx:
+                diff_cell = row[diferenca_idx-1]
+                if diff_cell.value is not None and diff_cell.value != 0:
+                    diff_cell.fill = red_fill  # ou amarelo_fill, se preferir apenas destacar
+
             # Cores para formatação condicional
             red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
             green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -1293,9 +1303,11 @@ class DatabaseManager:
             for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
                 # Formata valores negativos em vermelho (apenas para coluna Diferença)
                 if diferenca_idx:
-                    diff_cell = row[diferenca_idx-1]  # -1 porque index começa em 0
-                    if diff_cell.value is not None and diff_cell.value < 0:
+                    diff_cell = row[diferenca_idx-1]
+                    if diff_cell.value is not None and diff_cell.value != 0:
+                        diff_cell.fill = yellow_fill
                         diff_cell.font = red_font
+
                 
                 # Formatação baseada no status
                 if status_idx:
@@ -1552,7 +1564,7 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
                     SUM(saldo_financeiro) as total_financeiro,
                     SUM(saldo_contabil) as total_contabil,
-                    (SUM(saldo_financeiro) - SUM(saldo_contabil)) as diferenca_geral,
+                    (SUM(saldo_contabil) - SUM(saldo_financeiro)) as diferenca_geral,
                     SUM(CASE WHEN status = 'Divergente' THEN diferenca ELSE 0 END) as total_divergencia
                 FROM 
                     {self.settings.TABLE_RESULTADO}
@@ -1596,7 +1608,7 @@ class DatabaseManager:
             df_financeiro['Data Vencimento'] = pd.to_datetime(df_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
             
-            df_financeiro.to_excel(writer, sheet_name='Títulos a Pagar', index=False)
+            df_financeiro.to_excel(writer, sheet_name='Fornecedores Nacionais', index=False)
 
             # NOVA ABA: "Adiantamentos de Títulos a Pagar" (Dados Financeiros) - VERIFICAÇÃO DE DATAS
             query_adi_financeiro = f"""
@@ -1634,7 +1646,7 @@ class DatabaseManager:
             df_adi_financeiro['Data Vencimento'] = pd.to_datetime(df_adi_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
             
-            df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento TAP', index=False)
+            df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento de Fornecedores Nacionais', index=False)
             
             # ABA: "Balancete" (Dados Contábeis) - TODOS OS CAMPOS
             query_contabil = f"""
@@ -1716,28 +1728,20 @@ class DatabaseManager:
             # ABA: "Resumo da Conciliação" (Principal)
             query_resumo = f"""
                 SELECT 
-                    
+                    codigo_fornecedor as "Código Fornecedor",
                     descricao_fornecedor as "Descrição Fornecedor",
                     saldo_contabil as "Saldo Contábil",
                     saldo_financeiro as "Saldo Financeiro",
-                    (saldo_contabil - saldo_financeiro) as "Diferença (Contábil - Financeiro)",
+                    (saldo_contabil - saldo_financeiro) as "Diferença",
                     CASE 
                         WHEN (saldo_contabil - saldo_financeiro) > 0 THEN 'Contábil > Financeiro'
                         WHEN (saldo_contabil - saldo_financeiro) < 0 THEN 'Financeiro > Contábil'
-                        ELSE 'Igual'
-                    END as "Tipo Diferença",
-                    CASE 
-                        WHEN status = 'Conferido' THEN 'Conferido'  
-                        WHEN status = 'Divergente' THEN 'Divergente'
-                        ELSE 'Pendente'
-                    END as "Status", 
-                    detalhes as "Detalhes",
-                    '{data_inicial} a {data_final}' as "Data de Referência"
+                        ELSE 'Zerado'
+                    END as "Status"
                 FROM 
                     {self.settings.TABLE_RESULTADO}
                 ORDER BY 
-                    ABS(saldo_contabil - saldo_financeiro) DESC,
-                    codigo_fornecedor
+                    ABS(saldo_contabil - saldo_financeiro) DESC
             """
             df_resumo = pd.read_sql(query_resumo, self.conn)
 
@@ -1774,12 +1778,10 @@ class DatabaseManager:
                 'Conciliações Pendentes',
                 'Total Financeiro (R$)',
                 'Total Contábil (R$)',
-                'Saldo Líquido da Conciliação (R$)',
+                'Diferença Total (R$)',
                 '--- ADIANTAMENTOS ---',
                 'Total de Adiantamentos Processados',
-                'Adiantamentos Conferidos',
                 'Adiantamentos Divergentes', 
-                'Adiantamentos Pendentes',
                 'Total Financeiro Adiantamentos (R$)',
                 'Total Contábil Adiantamentos (R$)',
                 'Saldo Líquido Adiantamentos (R$)',
@@ -1800,9 +1802,7 @@ class DatabaseManager:
                 f"R$ {stats['diferenca_geral']:,.2f}",
                 '---',  # Separador
                 int(adiantamento_stats['total_adiantamentos']),
-                int(adiantamento_stats['adiantamentos_ok']),
                 int(adiantamento_stats['adiantamentos_divergentes']),
-                int(adiantamento_stats['adiantamentos_pendentes']),
                 f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",
                 f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
                 f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",
@@ -1834,7 +1834,7 @@ class DatabaseManager:
             # Aplica estilos à aba Metadados
             if 'Metadados' in workbook.sheetnames:
                 meta_sheet = workbook['Metadados']
-                self._apply_metadata_styles(meta_sheet)
+                self._apply_metadata_styles(meta_sheet, metadata_items, metadata_values)
             
             # Aplica estilos melhorados à aba Resumo da Conciliação
             if 'Resumo da Conciliação' in workbook.sheetnames:
@@ -1882,7 +1882,7 @@ class DatabaseManager:
             wb = openpyxl.load_workbook(output_path)
             
             # Verifica abas obrigatórias
-            required_sheets = ['Resumo da Conciliação', 'Títulos a Pagar', 'Balancete', 'Contas x Itens', 'Metadados']
+            required_sheets = ['Resumo da Conciliação', 'Fornecedores Nacionais', 'Balancete', 'Contas x Itens', 'Metadados']
             for sheet in required_sheets:
                 if sheet not in wb.sheetnames:
                     raise ValueError(f"Aba '{sheet}' não encontrada no arquivo gerado")
