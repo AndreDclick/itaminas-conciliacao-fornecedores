@@ -691,6 +691,15 @@ class DatabaseManager:
                 df['codigo_fornecedor'] = df['descricao_conta'].str.extract(r'(\d{4,})', expand=False)
                 df['descricao_fornecedor'] = df['descricao_conta']
 
+            if 'descricao_conta' in df.columns:
+                # Remove registros que contenham "OUTROS" na descrição
+                antes = len(df)
+                df = df[~df['descricao_conta'].str.contains('OUTROS', na=False)]
+                depois = len(df)
+                removidos = antes - depois
+                if removidos > 0:
+                    logger.info(f"Removidos {removidos} registros de 'FORNECEDORES OUTROS'")
+            
             # Limpa e converte colunas numéricas
             num_cols = ['saldo_anterior', 'debito', 'credito', 'saldo_atual']
             for col in num_cols:
@@ -726,7 +735,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Erro ao limpar dados de Contas x Itens: {e}")
             raise
-
     def _clean_adiantamento_data(self, df):
         """
         Limpa e padroniza os dados da planilha de Adiantamentos.
@@ -735,29 +743,28 @@ class DatabaseManager:
             mapping = self.settings.COLUNAS_ADIANTAMENTO
             # aplica rename
             df = df.rename(columns={v: k for k, v in mapping.items()})
+            
             # garante que todas as colunas do mapping existem
             for col in mapping.keys():
                 if col not in df.columns:
                     df[col] = None
+
+            # normaliza conta_contabil
+            if 'conta_contabil' in df.columns:
+                df['conta_contabil'] = df['conta_contabil'].astype(str).str.strip()
+                df['conta_contabil'] = df['conta_contabil'].str.replace(r'\D', '', regex=True)  # só dígitos
+                df['conta_contabil'] = df['conta_contabil'].apply(
+                    lambda x: '1.01.06.02.0001' if x.endswith('106020001') else x
+                )
+
             return df[list(mapping.keys())]
         except Exception as e:
             logger.error(f"Erro ao limpar dados de Adiantamentos: {e}")
             raise
 
-
-    
     def _get_column_mapping(self, file_path: Path):
         """
         Retorna mapeamento de colunas baseado no nome do arquivo e extensão.
-        
-        Args:
-            file_path: Caminho do arquivo
-            
-        Returns:
-            dict: Dicionário com mapeamento de colunas
-            
-        Raises:
-            ValueError: Se o tipo de planilha não for reconhecido
         """
         filename = file_path.stem.lower()
         ext = file_path.suffix.lower()
@@ -772,16 +779,6 @@ class DatabaseManager:
                 return getattr(self.settings, 'COLUNAS_CONTAS_ITENS', {})
             elif 'ctbr100' in filename:  
                 return getattr(self.settings, 'COLUNAS_ADIANTAMENTO', {})
-            
-        # Diagnóstico inicial das colunas de data antes do mapeamento
-        if 'Data Emissao' in df.columns or 'Data Emissão' in df.columns:
-            col = 'Data Emissao' if 'Data Emissao' in df.columns else 'Data Emissão'
-            logger.info(f"Valores originais da coluna {col}: {df[col].head().tolist()}")
-
-        if 'Data Vencto' in df.columns or 'Data Vencimento' in df.columns:
-            col = 'Data Vencto' if 'Data Vencto' in df.columns else 'Data Vencimento'
-            logger.info(f"Valores originais da coluna {col}: {df[col].head().tolist()}")
-
         
         # Mapeamento para arquivos TXT
         elif ext == ".txt":
@@ -800,7 +797,8 @@ class DatabaseManager:
         # Se não encontrou mapeamento, retorna dicionário vazio
         logger.warning(f"Tipo de planilha não reconhecido: {file_path.name}")
         return {}
-        
+
+
     def process_data(self):
         """
         Processa os dados importados e gera resultados da conciliação.
@@ -1562,9 +1560,22 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Conferido' THEN 1 ELSE 0 END) as conciliados_ok,
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
-                    SUM(saldo_financeiro) as total_financeiro,
-                    SUM(saldo_contabil) as total_contabil,
-                    (SUM(saldo_contabil) - SUM(saldo_financeiro)) as diferenca_geral,
+                    ABS(SUM(saldo_financeiro)) as total_financeiro,  -- CORREÇÃO: ABS() para tornar positivo
+                    (
+                        SUM(saldo_contabil) + 
+                        (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
+                        (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_MODELO1} 
+                        WHERE conta_contabil LIKE '1.01.06.02.0001%' OR descricao_conta LIKE '%Adiantamento%Fornecedor%')
+                    ) as total_contabil,
+                    (
+                        ABS(SUM(saldo_financeiro)) -  -- CORREÇÃO: Financeiro positivo
+                        (
+                            SUM(saldo_contabil) + 
+                            (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
+                            (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_MODELO1} 
+                            WHERE conta_contabil LIKE '1.01.06.02.0001%' OR descricao_conta LIKE '%Adiantamento%Fornecedor%')
+                        )
+                    ) as diferenca_geral,
                     SUM(CASE WHEN status = 'Divergente' THEN diferenca ELSE 0 END) as total_divergencia
                 FROM 
                     {self.settings.TABLE_RESULTADO}
@@ -1647,8 +1658,8 @@ class DatabaseManager:
 
             
             df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento de Fornecedores Nacionais', index=False)
-            
-            # ABA: "Balancete" (Dados Contábeis) - TODOS OS CAMPOS
+
+            # ABA: "Balancete" (Dados Contábeis) 
             query_contabil = f"""
                 SELECT 
                     conta_contabil as "Conta Contábil",
@@ -1660,17 +1671,49 @@ class DatabaseManager:
                     credito as "Crédito",
                     saldo_atual as "Saldo Atual",
                     tipo_fornecedor as "Tipo Fornecedor"
-                FROM 
-                    {self.settings.TABLE_MODELO1}
-                WHERE 
-                    descricao_conta LIKE '%FORNEC%'
-                    AND conta_contabil NOT LIKE '1.01.06.02%'  -- Exclui adiantamentos detalhados
-                ORDER BY 
-                    conta_contabil, codigo_fornecedor
-            """
+                FROM (
+                    SELECT 
+                        conta_contabil,
+                        descricao_conta,
+                        codigo_fornecedor,
+                        descricao_fornecedor,
+                        saldo_anterior,
+                        debito,
+                        credito,
+                        saldo_atual,
+                        tipo_fornecedor,
+                        1 as ordem
+                    FROM {self.settings.TABLE_MODELO1}
+                    WHERE descricao_conta LIKE '%FORNEC%'
+                    AND conta_contabil NOT LIKE '1.01.06.02%'
+                    AND descricao_conta NOT LIKE '%OUTROS%'
 
+                    UNION ALL
+
+                    SELECT 
+                        conta_contabil,
+                        'Adiantamento de Fornecedores' as descricao_conta,
+                        codigo_fornecedor,
+                        descricao_fornecedor,
+                        saldo_anterior,
+                        0 as debito,
+                        0 as credito,
+                        saldo_atual,
+                        'ADIANTAMENTO' as tipo_fornecedor,
+                        2 as ordem
+                    FROM {self.settings.TABLE_ADIANTAMENTO}
+                    WHERE conta_contabil LIKE '1.01.06.02%'
+
+                    ORDER BY ordem, conta_contabil, codigo_fornecedor
+                )
+            """
             df_contabil = pd.read_sql(query_contabil, self.conn)
-            df_contabil.to_excel(writer, sheet_name='Balancete', index=False)
+
+            # Remove a coluna 'ordem' apenas se ela existir
+            if 'ordem' in df_contabil.columns:
+                df_contabil.drop(columns=["ordem"], inplace=True)
+
+            df_contabil.to_excel(writer, sheet_name="Balancete", index=False)
             
             # ABA: "Adiantamento" (Dados de Adiantamentos)
             query_adiantamento = f"""
@@ -1732,7 +1775,7 @@ class DatabaseManager:
                     descricao_fornecedor as "Descrição Fornecedor",
                     saldo_contabil as "Saldo Contábil",
                     saldo_financeiro as "Saldo Financeiro",
-                    (saldo_contabil - saldo_financeiro) as "Diferença",
+                    (ABS(saldo_financeiro) - saldo_contabil) as "Diferença",
                     CASE 
                         WHEN (saldo_contabil - saldo_financeiro) > 0 THEN 'Contábil > Financeiro'
                         WHEN (saldo_contabil - saldo_financeiro) < 0 THEN 'Financeiro > Contábil'
@@ -1759,9 +1802,11 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Conferido' THEN 1 ELSE 0 END) as adiantamentos_ok,
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as adiantamentos_divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as adiantamentos_pendentes,
-                    SUM(total_financeiro) as total_financeiro_adiantamento,
+                    ABS(SUM(total_financeiro)) as total_financeiro_adiantamento,  -- CORREÇÃO: ABS()
                     SUM(total_contabil) as total_contabil_adiantamento,
-                    (SUM(total_financeiro) - SUM(total_contabil)) as diferenca_adiantamento
+                    (
+                        ABS(SUM(total_financeiro)) - SUM(total_contabil)  -- CORREÇÃO: Financeiro - Contábil
+                    ) as diferenca_adiantamento
                 FROM 
                     {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
             """
@@ -1802,10 +1847,10 @@ class DatabaseManager:
                 f"R$ {stats['diferenca_geral']:,.2f}",
                 '---',  # Separador
                 int(adiantamento_stats['total_adiantamentos']),
-                int(adiantamento_stats['adiantamentos_divergentes']),
-                f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",
+    int(adiantamento_stats['adiantamentos_divergentes']),
+                f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",  # Já positivo
                 f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
-                f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",
+                f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",  # Agora: Financeiro - Contábil
                 '---',  # Separador
                 'CONFERIDO: Diferença dentro da tolerância (até 3%) | DIVERGENTE: Diferença significativa | PENDENTE: Sem correspondência',
                 'Até 3% de discrepância é considerada tolerável'
@@ -1832,8 +1877,15 @@ class DatabaseManager:
             workbook = openpyxl.load_workbook(output_path)
             
             # Aplica estilos à aba Metadados
-            if 'Metadados' in workbook.sheetnames:
-                meta_sheet = workbook['Metadados']
+            if "Metadados" in workbook.sheetnames:
+                meta_sheet = workbook["Metadados"]
+
+                # Preenche itens e valores de metadados
+                for row_idx, (item, value) in enumerate(zip(metadata_items, metadata_values), 1):
+                    meta_sheet.cell(row=row_idx, column=1, value=item)
+                    meta_sheet.cell(row=row_idx, column=2, value=value)
+
+                # Só depois aplica estilos
                 self._apply_metadata_styles(meta_sheet, metadata_items, metadata_values)
             
             # Aplica estilos melhorados à aba Resumo da Conciliação
