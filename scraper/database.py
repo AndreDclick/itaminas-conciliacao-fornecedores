@@ -1069,8 +1069,8 @@ class DatabaseManager:
             data_inicial = cal.add_working_days(data_inicial - timedelta(days=1), 1)
             data_final = hoje
             # Retorna em ISO (YYYY-MM-DD) — adequado para BETWEEN no SQLite
-            # return data_inicial.strftime("01/05/2025"), data_final.strftime("01/06/2025")
-            return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
+            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/06/2025")
+            #return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
 
         except Exception as e:
             error_msg = f"Erro ao obter datas de referência: {e}"
