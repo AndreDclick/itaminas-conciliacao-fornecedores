@@ -19,6 +19,7 @@ from openpyxl.utils import get_column_letter
 from difflib import get_close_matches
 from workalendar.america import Brazil
 from datetime import datetime, timedelta
+import locale
 import pandas as pd
 import xml.etree.ElementTree as ET
 import numpy as np
@@ -27,7 +28,7 @@ import re
 
 # Configura o logger para registrar eventos
 logger = configure_logger()
-
+locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 class DatabaseManager:
     """
     Gerenciador de banco de dados para conciliação contábil.
@@ -525,7 +526,7 @@ class DatabaseManager:
         
         Args:
             df: DataFrame a ser limpo
-            sheet_type: Tipo de planilha ('financeiro', 'modelo1', 'contas_itens')
+            sheet_type: Tipo de planilha ('financeiro', 'modelo1', 'contas_itens', 'adiantamento')
             
         Returns:
             DataFrame: DataFrame limpo
@@ -546,6 +547,8 @@ class DatabaseManager:
                 df = self._clean_modelo1_data(df)
             elif sheet_type == 'contas_itens':
                 df = self._clean_contas_itens_data(df)
+            elif sheet_type == 'adiantamento':  # ADICIONE ESTA CONDIÇÃO
+                df = self._clean_adiantamento_data(df)
             
             df = df.drop_duplicates()  # Remove duplicatas
             logger.info(f"DataFrame limpo - shape final: {df.shape}")
@@ -686,6 +689,10 @@ class DatabaseManager:
             if 'descricao_fornecedor' not in df.columns:
                 df['descricao_fornecedor'] = None
             
+            if 'codigo_fornecedor' in df.columns:
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].str.replace(r'^(AF|F)', '', regex=True)
+
             # Tenta extrair código do fornecedor da descrição da conta
             if df['codigo_fornecedor'].isna().all() and 'descricao_conta' in df.columns:
                 df['codigo_fornecedor'] = df['descricao_conta'].str.extract(r'(\d{4,})', expand=False)
@@ -717,47 +724,92 @@ class DatabaseManager:
             logger.error(error_msg)
             raise InvalidDataFormat(error_msg, tipo_dado="modelo1") from e
 
-    def _clean_contas_itens_data(self, df):
-        """
-        Limpa e padroniza os dados da planilha de Contas x Itens.
-        """
+    def formatar_credito(self, valor):
+        if pd.isna(valor):
+            return None
+        valor_str = str(valor).strip()
+
+        is_credito = valor_str.endswith("C")
+        is_debito = valor_str.endswith("D")
+
+        # Remove tudo que não for dígito, vírgula ou ponto
+        valor_str = re.sub(r'[^\d,]', '', valor_str)
+
         try:
-            # Primeiro aplica o mapeamento reverso (valores para chaves)
+            valor_float = float(valor_str.replace('.', '').replace(',', '.'))
+        except:
+            valor_float = 0.0
+
+        if is_credito:
+            valor_float = -valor_float
+        # se for débito, mantém positivo
+
+        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+    def _clean_contas_itens_data(self, df):
+        try:
+            if 'codigo_fornecedor' in df.columns:
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].str.replace(r'^(AF|F)', '', regex=True)
+
             reverse_mapping = {v: k for k, v in self.settings.COLUNAS_CONTAS_ITENS.items()}
             df = df.rename(columns=reverse_mapping)
             
-            # Garante que todas as colunas do mapeamento existam
             for col in self.settings.COLUNAS_CONTAS_ITENS.keys():
                 if col not in df.columns:
                     df[col] = None
-            
+
+            if 'credito' in df.columns:
+                df['credito'] = df['credito'].apply(self.formatar_credito)
+
+            if 'saldo_anterior' in df.columns:
+                df['saldo_anterior'] = df['saldo_anterior'].apply(self.formatar_credito)
+
+            if 'saldo_atual' in df.columns:
+                df['saldo_atual'] = df['saldo_atual'].apply(self.formatar_credito)
+
             return df
         except Exception as e:
             logger.error(f"Erro ao limpar dados de Contas x Itens: {e}")
             raise
+
     def _clean_adiantamento_data(self, df):
         """
-        Limpa e padroniza os dados da planilha de Adiantamentos.
+        Limpeza específica para dados de adiantamentos.
+        
+        Args:
+            df: DataFrame com dados de adiantamentos
+            
+        Returns:
+            DataFrame: DataFrame limpo
         """
         try:
-            mapping = self.settings.COLUNAS_ADIANTAMENTO
-            # aplica rename
-            df = df.rename(columns={v: k for k, v in mapping.items()})
+            # Aplica o mesmo mapeamento reverso que em contas_itens
+
+            if 'codigo_fornecedor' in df.columns:
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
+                df['codigo_fornecedor'] = df['codigo_fornecedor'].str.replace(r'^(AF|F)', '', regex=True)
+
+            reverse_mapping = {v: k for k, v in self.settings.COLUNAS_ADIANTAMENTO.items()}
+            df = df.rename(columns=reverse_mapping)
             
-            # garante que todas as colunas do mapping existem
-            for col in mapping.keys():
+            # Garante que todas as colunas existam
+            for col in self.settings.COLUNAS_ADIANTAMENTO.keys():
                 if col not in df.columns:
                     df[col] = None
 
-            # normaliza conta_contabil
-            if 'conta_contabil' in df.columns:
-                df['conta_contabil'] = df['conta_contabil'].astype(str).str.strip()
-                df['conta_contabil'] = df['conta_contabil'].str.replace(r'\D', '', regex=True)  # só dígitos
-                df['conta_contabil'] = df['conta_contabil'].apply(
-                    lambda x: '1.01.06.02.0001' if x.endswith('106020001') else x
-                )
+            # Aplica a formatação de crédito nas mesmas colunas
+            if 'credito' in df.columns:
+                df['credito'] = df['credito'].apply(self.formatar_credito)
 
-            return df[list(mapping.keys())]
+            if 'saldo_anterior' in df.columns:
+                df['saldo_anterior'] = df['saldo_anterior'].apply(self.formatar_credito)
+
+            if 'saldo_atual' in df.columns:
+                df['saldo_atual'] = df['saldo_atual'].apply(self.formatar_credito)
+
+            return df[list(self.settings.COLUNAS_ADIANTAMENTO.keys())]
         except Exception as e:
             logger.error(f"Erro ao limpar dados de Adiantamentos: {e}")
             raise
