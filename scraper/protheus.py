@@ -236,7 +236,6 @@ class ProtheusScraper(Utils):
             logger.error(f"{error_msg}: {str(e)}")
             raise LoginProtheusError(error_msg, self.settings.USUARIO) from e
 
-    
     def run(self):
         """
         Executa o fluxo completo de automação do Protheus.
@@ -298,7 +297,7 @@ class ProtheusScraper(Utils):
             #         'etapa': 'contas_x_itens',
             #         'error_code': getattr(e, 'code', 'FE4') if hasattr(e, 'code') else 'FE3'
             #     })
-                
+                    
         except Exception as e:
             # Erro crítico não tratado no processo principal
             error_msg = f"Erro crítico não tratado: {str(e)}"
@@ -364,19 +363,38 @@ class ProtheusScraper(Utils):
                     if importacoes_realizadas > 0:
                         logger.info("Processando dados para conciliação...")
                         if db.process_data():
-                            output_path = db.export_to_excel()
-                            if output_path:
+                            # GERAR PLANILHAS SEPARADAS
+                            logger.info("Gerando planilhas separadas...")
+                            
+                            # Planilha de fornecedores
+                            output_path_fornecedores = db.export_to_excel(export_type="fornecedores")
+                            if output_path_fornecedores:
                                 results.append({
                                     'status': 'success',
-                                    'message': f'Conciliação gerada em {output_path}',
+                                    'message': f'Conciliação de fornecedores gerada em {output_path_fornecedores}',
                                     'etapa': 'processamento',
                                     'error_code': None
                                 })
-                                logger.info(f"✅ Planilha final gerada: {output_path}")
+                                logger.info(f"✅ Planilha de fornecedores gerada: {output_path_fornecedores}")
+                            
+                            # Planilha de adiantamentos
+                            output_path_adiantamentos = db.export_to_excel(export_type="adiantamentos")
+                            if output_path_adiantamentos:
+                                results.append({
+                                    'status': 'success',
+                                    'message': f'Conciliação de adiantamentos gerada em {output_path_adiantamentos}',
+                                    'etapa': 'processamento',
+                                    'error_code': None
+                                })
+                                logger.info(f"✅ Planilha de adiantamentos gerada: {output_path_adiantamentos}")
+                            
+                            # Verificar se pelo menos uma planilha foi gerada
+                            if output_path_fornecedores or output_path_adiantamentos:
+                                logger.info("✅ Todas as planilhas foram geradas com sucesso")
                             else:
                                 results.append({
                                     'status': 'error',
-                                    'message': 'Falha ao gerar planilha de conciliação',
+                                    'message': 'Falha ao gerar planilhas de conciliação',
                                     'etapa': 'processamento',
                                     'error_code': 'DB001'
                                 })

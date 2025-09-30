@@ -1634,9 +1634,12 @@ class DatabaseManager:
         
         return df
 
-    def export_to_excel(self):
+    def export_to_excel(self, export_type="all"):
         """
-        Exporta resultados para arquivo Excel formatado com metadados.
+        Exporta resultados para arquivo(s) Excel formatado(s) com metadados.
+        
+        Args:
+            export_type: Tipo de exportação - "all", "fornecedores", "adiantamentos"
         """
         data_inicial_iso, data_final_iso = self._get_datas_referencia()
         try:
@@ -1645,7 +1648,15 @@ class DatabaseManager:
         except Exception:
             data_inicial, data_final = data_inicial_iso, data_final_iso
 
-        output_path = self.settings.RESULTS_DIR / f"CONCILIACAO_{data_inicial.replace('/', '-')}_a_{data_final.replace('/', '-')}.xlsx"
+        # Define os caminhos dos arquivos
+        base_filename = f"CONCILIACAO_{data_inicial.replace('/', '-')}_a_{data_final.replace('/', '-')}"
+        
+        if export_type == "fornecedores":
+            output_path = self.settings.RESULTS_DIR / f"{base_filename}_FORNECEDORES.xlsx"
+        elif export_type == "adiantamentos":
+            output_path = self.settings.RESULTS_DIR / f"{base_filename}_ADIANTAMENTOS.xlsx"
+        else:
+            output_path = self.settings.RESULTS_DIR / f"{base_filename}.xlsx"
 
         try:
             if not self.conn:
@@ -1662,7 +1673,7 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Conferido' THEN 1 ELSE 0 END) as conciliados_ok,
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
-                    ABS(SUM(saldo_financeiro)) as total_financeiro,  -- CORREÇÃO: ABS() para tornar positivo
+                    ABS(SUM(saldo_financeiro)) as total_financeiro,
                     (
                         SUM(saldo_contabil) + 
                         (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
@@ -1670,7 +1681,7 @@ class DatabaseManager:
                         WHERE conta_contabil LIKE '1.01.06.02.0001%' OR descricao_conta LIKE '%Adiantamento%Fornecedor%')
                     ) as total_contabil,
                     (
-                        ABS(SUM(saldo_financeiro)) -  -- CORREÇÃO: Financeiro positivo
+                        ABS(SUM(saldo_financeiro)) -
                         (
                             SUM(saldo_contabil) + 
                             (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
@@ -1685,278 +1696,285 @@ class DatabaseManager:
 
             stats = pd.read_sql(query_stats, self.conn).iloc[0]
 
-            # ABA: "Fornecedores Nacionais" (Dados Financeiros) - COM SEPARAÇÃO DE CÓDIGO/DESCRIÇÃO
-            query_financeiro = f"""
-                SELECT 
-                    fornecedor as "Fornecedor",
-                    titulo as "Título",
-                    parcela as "Parcela",
-                    tipo_titulo as "Tipo Título",
-                    CASE 
-                        WHEN data_emissao IS NULL OR data_emissao = '' THEN NULL
-                        ELSE data_emissao 
-                    END as "Data Emissão",
-                    CASE 
-                        WHEN data_vencimento IS NULL OR data_vencimento = '' THEN NULL
-                        ELSE data_vencimento 
-                    END as "Data Vencimento",
-                    valor_original as "Valor Original",
-                    saldo_devedor as "Saldo Devedor",
-                    situacao as "Situação",
-                    conta_contabil as "Conta Contábil",
-                    centro_custo as "Centro Custo"
-                FROM 
-                    {self.settings.TABLE_FINANCEIRO}
-                WHERE 
-                    excluido = 0
-                    AND UPPER(tipo_titulo) NOT IN ('NDF', 'PA', 'BOL', 'EMP', 'TX', 'INS', 'ISS', 'TXA', 'IRF')
-                ORDER BY 
-                    fornecedor, titulo, parcela
-            """
-            df_financeiro = pd.read_sql(query_financeiro, self.conn)
-            
-            # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
-            df_financeiro = self.separar_codigo_descricao(df_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
-            
-            # Reorganizar colunas para ter Código e Descrição primeiro
-            colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
-            df_financeiro = df_financeiro[colunas_ordenadas]
-
-            # Verifica se há problemas com as datas
-            logger.info(f"Total de registros financeiros: {len(df_financeiro)}")
-            df_financeiro['Data Emissão'] = pd.to_datetime(df_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
-            df_financeiro['Data Vencimento'] = pd.to_datetime(df_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
-
-            df_financeiro.to_excel(writer, sheet_name='Fornecedores Nacionais', index=False)
-
-            # ABA: "Adiantamento de Fornecedores Nacionais" (Dados Financeiros) - COM SEPARAÇÃO
-            query_adi_financeiro = f"""
-                SELECT 
-                    fornecedor as "Fornecedor",
-                    titulo as "Título",
-                    parcela as "Parcela",
-                    tipo_titulo as "Tipo Título",
-                    CASE 
-                        WHEN data_emissao IS NULL OR data_emissao = '' THEN NULL
-                        ELSE data_emissao 
-                    END as "Data Emissão",
-                    CASE 
-                        WHEN data_vencimento IS NULL OR data_vencimento = '' THEN NULL
-                        ELSE data_vencimento 
-                    END as "Data Vencimento",
-                    valor_original as "Valor Original",
-                    saldo_devedor as "Saldo Devedor",
-                    situacao as "Situação",
-                    conta_contabil as "Conta Contábil",
-                    centro_custo as "Centro Custo"
-                FROM 
-                    {self.settings.TABLE_FINANCEIRO}
-                WHERE 
-                    excluido = 0
-                    AND UPPER(tipo_titulo) IN ('NDF', 'PA')
-                ORDER BY 
-                    fornecedor, titulo, parcela
-            """
-            df_adi_financeiro = pd.read_sql(query_adi_financeiro, self.conn)
-            
-            # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
-            df_adi_financeiro = self.separar_codigo_descricao(df_adi_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
-            
-            # Reorganizar colunas
-            colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_adi_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
-            df_adi_financeiro = df_adi_financeiro[colunas_ordenadas]
-            
-            # Verifica se há problemas com as datas
-            logger.info(f"Total de registros financeiros de adiantamento: {len(df_adi_financeiro)}")
-            df_adi_financeiro['Data Emissão'] = pd.to_datetime(df_adi_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
-            df_adi_financeiro['Data Vencimento'] = pd.to_datetime(df_adi_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
-
-            df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento de Fornecedores Nacionais', index=False)
-
-            # ABA: "Balancete" (Dados Contábeis) 
-            query_contabil = f"""
-                SELECT 
-                    conta_contabil as "Conta Contábil",
-                    descricao_conta as "Descrição Conta",
-                    codigo_fornecedor as "Código Fornecedor",
-                    descricao_fornecedor as "Descrição Fornecedor",
-                    saldo_anterior as "Saldo Anterior",
-                    debito as "Débito",
-                    credito as "Crédito",
-                    saldo_atual as "Saldo Atual",
-                    tipo_fornecedor as "Tipo Fornecedor"
-                FROM (
+            # ABA: "Fornecedores Nacionais" (Dados Financeiros) - APENAS PARA FORNECEDORES
+            if export_type in ["all", "fornecedores"]:
+                query_financeiro = f"""
                     SELECT 
-                        conta_contabil,
-                        descricao_conta,
-                        codigo_fornecedor,
-                        descricao_fornecedor,
-                        saldo_anterior,
-                        debito,
-                        credito,
-                        saldo_atual,
-                        tipo_fornecedor,
-                        1 as ordem
-                    FROM {self.settings.TABLE_MODELO1}
-                    WHERE descricao_conta LIKE '%FORNEC%'
-                    AND conta_contabil NOT LIKE '1.01.06.02%'
-                    AND descricao_conta NOT LIKE '%OUTROS%'
+                        fornecedor as "Fornecedor",
+                        titulo as "Título",
+                        parcela as "Parcela",
+                        tipo_titulo as "Tipo Título",
+                        CASE 
+                            WHEN data_emissao IS NULL OR data_emissao = '' THEN NULL
+                            ELSE data_emissao 
+                        END as "Data Emissão",
+                        CASE 
+                            WHEN data_vencimento IS NULL OR data_vencimento = '' THEN NULL
+                            ELSE data_vencimento 
+                        END as "Data Vencimento",
+                        valor_original as "Valor Original",
+                        saldo_devedor as "Saldo Devedor",
+                        situacao as "Situação",
+                        conta_contabil as "Conta Contábil",
+                        centro_custo as "Centro Custo"
+                    FROM 
+                        {self.settings.TABLE_FINANCEIRO}
+                    WHERE 
+                        excluido = 0
+                        AND UPPER(tipo_titulo) NOT IN ('NDF', 'PA', 'BOL', 'EMP', 'TX', 'INS', 'ISS', 'TXA', 'IRF')
+                    ORDER BY 
+                        fornecedor, titulo, parcela
+                """
+                df_financeiro = pd.read_sql(query_financeiro, self.conn)
+                
+                # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
+                df_financeiro = self.separar_codigo_descricao(df_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas para ter Código e Descrição primeiro
+                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
+                df_financeiro = df_financeiro[colunas_ordenadas]
 
-                    UNION ALL
+                # Verifica se há problemas com as datas
+                logger.info(f"Total de registros financeiros: {len(df_financeiro)}")
+                df_financeiro['Data Emissão'] = pd.to_datetime(df_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
+                df_financeiro['Data Vencimento'] = pd.to_datetime(df_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
+                df_financeiro.to_excel(writer, sheet_name='Fornecedores Nacionais', index=False)
+
+            # ABA: "Adiantamento de Fornecedores Nacionais" (Dados Financeiros) - APENAS PARA ADIANTAMENTOS
+            if export_type in ["all", "adiantamentos"]:
+                query_adi_financeiro = f"""
                     SELECT 
-                        conta_contabil,
-                        'Adiantamento de Fornecedores' as descricao_conta,
-                        codigo_fornecedor,
-                        descricao_fornecedor,
-                        saldo_anterior,
-                        0 as debito,
-                        0 as credito,
-                        saldo_atual,
-                        'ADIANTAMENTO' as tipo_fornecedor,
-                        2 as ordem
-                    FROM {self.settings.TABLE_ADIANTAMENTO}
-                    WHERE conta_contabil LIKE '1.01.06.02%'
-
-                    ORDER BY ordem, conta_contabil, codigo_fornecedor
-                )
-            """
-            df_contabil = pd.read_sql(query_contabil, self.conn)
-
-            # Remove a coluna 'ordem' apenas se ela existir
-            if 'ordem' in df_contabil.columns:
-                df_contabil.drop(columns=["ordem"], inplace=True)
-
-            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-            if "Código Fornecedor" in df_contabil.columns:
-                df_contabil = self.separar_codigo_descricao(df_contabil, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                        fornecedor as "Fornecedor",
+                        titulo as "Título",
+                        parcela as "Parcela",
+                        tipo_titulo as "Tipo Título",
+                        CASE 
+                            WHEN data_emissao IS NULL OR data_emissao = '' THEN NULL
+                            ELSE data_emissao 
+                        END as "Data Emissão",
+                        CASE 
+                            WHEN data_vencimento IS NULL OR data_vencimento = '' THEN NULL
+                            ELSE data_vencimento 
+                        END as "Data Vencimento",
+                        valor_original as "Valor Original",
+                        saldo_devedor as "Saldo Devedor",
+                        situacao as "Situação",
+                        conta_contabil as "Conta Contábil",
+                        centro_custo as "Centro Custo"
+                    FROM 
+                        {self.settings.TABLE_FINANCEIRO}
+                    WHERE 
+                        excluido = 0
+                        AND UPPER(tipo_titulo) IN ('NDF', 'PA')
+                    ORDER BY 
+                        fornecedor, titulo, parcela
+                """
+                df_adi_financeiro = pd.read_sql(query_adi_financeiro, self.conn)
                 
-                # Reorganizar colunas se a separação foi aplicada
-                if "Código" in df_contabil.columns and "Descrição Fornecedor" in df_contabil.columns:
-                    colunas_ordenadas = ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor"] + \
-                                    [col for col in df_contabil.columns if col not in ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                    df_contabil = df_contabil[colunas_ordenadas]
-
-            df_contabil.to_excel(writer, sheet_name="Balancete", index=False)
-            
-            # ABA: "Adiantamento" (Dados de Adiantamentos)
-            query_adiantamento = f"""
-                SELECT 
-                    conta_contabil as "Conta Contábil",
-                    descricao_item as "Descrição Item",
-                    codigo_fornecedor as "Código Fornecedor",
-                    descricao_fornecedor as "Descrição Fornecedor",
-                    saldo_anterior as "Saldo Anterior",
-                    saldo_atual as "Saldo Atual"
-                FROM 
-                    {self.settings.TABLE_ADIANTAMENTO}
-                ORDER BY 
-                    conta_contabil, codigo_fornecedor
-            """
-            df_adiantamento = pd.read_sql(query_adiantamento, self.conn)
-            
-            # APLICAR SEPARAÇÃO SE NECESSÁRIO
-            if "Código Fornecedor" in df_adiantamento.columns:
-                df_adiantamento = self.separar_codigo_descricao(df_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
-                
-                # Reorganizar colunas se a separação foi aplicada
-                if "Código" in df_adiantamento.columns and "Descrição Fornecedor" in df_adiantamento.columns:
-                    colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
-                                    [col for col in df_adiantamento.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                    df_adiantamento = df_adiantamento[colunas_ordenadas]
-            
-            df_adiantamento.to_excel(writer, sheet_name='Adiantamento', index=False)
-            
-            # ABA: "Contas x Itens" (Detalhamento Contábil)
-            query_contas_itens = f"""
-                SELECT 
-                    conta_contabil as "Conta Contábil",
-                    descricao_item as "Descrição Item",
-                    codigo_fornecedor as "Código Fornecedor",
-                    descricao_fornecedor as "Descrição Fornecedor",
-                    saldo_anterior as "Saldo Anterior",
-                    saldo_atual as "Saldo Atual"
-                FROM 
-                    {self.settings.TABLE_CONTAS_ITENS}
-                ORDER BY 
-                    conta_contabil, codigo_fornecedor
-            """
-            df_contas_itens = pd.read_sql(query_contas_itens, self.conn)
-            
-            # APLICAR SEPARAÇÃO SE NECESSÁRIO
-            if "Código Fornecedor" in df_contas_itens.columns:
-                df_contas_itens = self.separar_codigo_descricao(df_contas_itens, "Código Fornecedor", "Código", "Descrição Fornecedor")
-                
-                # Reorganizar colunas se a separação foi aplicada
-                if "Código" in df_contas_itens.columns and "Descrição Fornecedor" in df_contas_itens.columns:
-                    colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
-                                    [col for col in df_contas_itens.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                    df_contas_itens = df_contas_itens[colunas_ordenadas]
-            
-            df_contas_itens.to_excel(writer, sheet_name='Contas x Itens', index=False)
-
-            # ABA: "Resumo Adiantamentos" - COM SEPARAÇÃO
-            query_resumo_adiantamento = f"""
-                SELECT 
-                    codigo_fornecedor as "Código Fornecedor",
-                    descricao_fornecedor as "Descrição Fornecedor",
-                    total_financeiro as "Total Financeiro",
-                    total_contabil as "Total Contábil",
-                    diferenca as "Diferença",
-                    status as "Status",
-                    detalhes as "Detalhes"
-                FROM 
-                    {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
-                ORDER BY 
-                    ABS(diferenca) DESC,
-                    codigo_fornecedor
-            """
-            df_resumo_adiantamento = pd.read_sql(query_resumo_adiantamento, self.conn)
-            
-            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-            if "Código Fornecedor" in df_resumo_adiantamento.columns:
-                df_resumo_adiantamento = self.separar_codigo_descricao(df_resumo_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
+                df_adi_financeiro = self.separar_codigo_descricao(df_adi_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
                 
                 # Reorganizar colunas
-                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo_adiantamento.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                df_resumo_adiantamento = df_resumo_adiantamento[colunas_ordenadas]
-            
-            df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
-
-            # ABA: "Resumo da Conciliação" (Principal) - COM SEPARAÇÃO
-            query_resumo = f"""
-                SELECT 
-                    codigo_fornecedor as "Código Fornecedor",
-                    descricao_fornecedor as "Descrição Fornecedor",
-                    saldo_contabil as "Saldo Contábil",
-                    saldo_financeiro as "Saldo Financeiro",
-                    (ABS(saldo_financeiro) - saldo_contabil) as "Diferença",
-                    CASE 
-                        WHEN (saldo_contabil - saldo_financeiro) > 0 THEN 'Contábil > Financeiro'
-                        WHEN (saldo_contabil - saldo_financeiro) < 0 THEN 'Financeiro > Contábil'
-                        ELSE 'Zerado'
-                    END as "Status"
-                FROM 
-                    {self.settings.TABLE_RESULTADO}
-                ORDER BY 
-                    ABS(saldo_contabil - saldo_financeiro) DESC
-            """
-            df_resumo = pd.read_sql(query_resumo, self.conn)
-            
-            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-            if "Código Fornecedor" in df_resumo.columns:
-                df_resumo = self.separar_codigo_descricao(df_resumo, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_adi_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
+                df_adi_financeiro = df_adi_financeiro[colunas_ordenadas]
                 
-                # Reorganizar colunas
-                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                df_resumo = df_resumo[colunas_ordenadas]
+                # Verifica se há problemas com as datas
+                logger.info(f"Total de registros financeiros de adiantamento: {len(df_adi_financeiro)}")
+                df_adi_financeiro['Data Emissão'] = pd.to_datetime(df_adi_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
+                df_adi_financeiro['Data Vencimento'] = pd.to_datetime(df_adi_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
-            # Garantir que as colunas sejam float antes de exportar
-            for col in ["Saldo Contábil", "Saldo Financeiro", "Diferença"]:
-                if col in df_resumo.columns:
-                    df_resumo[col] = pd.to_numeric(df_resumo[col], errors="coerce").fillna(0)
+                df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento de Fornecedores Nacionais', index=False)
 
-            df_resumo.to_excel(writer, sheet_name='Resumo da Conciliação', index=False)
+            # ABA: "Balancete" (Dados Contábeis) - APENAS PARA FORNECEDORES
+            if export_type in ["all", "fornecedores"]:
+                query_contabil = f"""
+                    SELECT 
+                        conta_contabil as "Conta Contábil",
+                        descricao_conta as "Descrição Conta",
+                        codigo_fornecedor as "Código Fornecedor",
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        saldo_anterior as "Saldo Anterior",
+                        debito as "Débito",
+                        credito as "Crédito",
+                        saldo_atual as "Saldo Atual",
+                        tipo_fornecedor as "Tipo Fornecedor"
+                    FROM (
+                        SELECT 
+                            conta_contabil,
+                            descricao_conta,
+                            codigo_fornecedor,
+                            descricao_fornecedor,
+                            saldo_anterior,
+                            debito,
+                            credito,
+                            saldo_atual,
+                            tipo_fornecedor,
+                            1 as ordem
+                        FROM {self.settings.TABLE_MODELO1}
+                        WHERE descricao_conta LIKE '%FORNEC%'
+                        AND conta_contabil NOT LIKE '1.01.06.02%'
+                        AND descricao_conta NOT LIKE '%OUTROS%'
+
+                        UNION ALL
+
+                        SELECT 
+                            conta_contabil,
+                            'Adiantamento de Fornecedores' as descricao_conta,
+                            codigo_fornecedor,
+                            descricao_fornecedor,
+                            saldo_anterior,
+                            0 as debito,
+                            0 as credito,
+                            saldo_atual,
+                            'ADIANTAMENTO' as tipo_fornecedor,
+                            2 as ordem
+                        FROM {self.settings.TABLE_ADIANTAMENTO}
+                        WHERE conta_contabil LIKE '1.01.06.02%'
+
+                        ORDER BY ordem, conta_contabil, codigo_fornecedor
+                    )
+                """
+                df_contabil = pd.read_sql(query_contabil, self.conn)
+
+                # Remove a coluna 'ordem' apenas se ela existir
+                if 'ordem' in df_contabil.columns:
+                    df_contabil.drop(columns=["ordem"], inplace=True)
+
+                # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+                if "Código Fornecedor" in df_contabil.columns:
+                    df_contabil = self.separar_codigo_descricao(df_contabil, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # Reorganizar colunas se a separação foi aplicada
+                    if "Código" in df_contabil.columns and "Descrição Fornecedor" in df_contabil.columns:
+                        colunas_ordenadas = ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor"] + \
+                                        [col for col in df_contabil.columns if col not in ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                        df_contabil = df_contabil[colunas_ordenadas]
+
+                df_contabil.to_excel(writer, sheet_name="Balancete", index=False)
+                
+            # ABA: "Adiantamento" (Dados de Adiantamentos) - APENAS PARA ADIANTAMENTOS
+            if export_type in ["all", "adiantamentos"]:
+                query_adiantamento = f"""
+                    SELECT 
+                        conta_contabil as "Conta Contábil",
+                        descricao_item as "Descrição Item",
+                        codigo_fornecedor as "Código Fornecedor",
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        saldo_anterior as "Saldo Anterior",
+                        saldo_atual as "Saldo Atual"
+                    FROM 
+                        {self.settings.TABLE_ADIANTAMENTO}
+                    ORDER BY 
+                        conta_contabil, codigo_fornecedor
+                """
+                df_adiantamento = pd.read_sql(query_adiantamento, self.conn)
+                
+                # APLICAR SEPARAÇÃO SE NECESSÁRIO
+                if "Código Fornecedor" in df_adiantamento.columns:
+                    df_adiantamento = self.separar_codigo_descricao(df_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # Reorganizar colunas se a separação foi aplicada
+                    if "Código" in df_adiantamento.columns and "Descrição Fornecedor" in df_adiantamento.columns:
+                        colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
+                                        [col for col in df_adiantamento.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                        df_adiantamento = df_adiantamento[colunas_ordenadas]
+                
+                df_adiantamento.to_excel(writer, sheet_name='Adiantamento', index=False)
+                
+            # ABA: "Contas x Itens" (Detalhamento Contábil) - APENAS PARA FORNECEDORES
+            if export_type in ["all", "fornecedores"]:
+                query_contas_itens = f"""
+                    SELECT 
+                        conta_contabil as "Conta Contábil",
+                        descricao_item as "Descrição Item",
+                        codigo_fornecedor as "Código Fornecedor",
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        saldo_anterior as "Saldo Anterior",
+                        saldo_atual as "Saldo Atual"
+                    FROM 
+                        {self.settings.TABLE_CONTAS_ITENS}
+                    ORDER BY 
+                        conta_contabil, codigo_fornecedor
+                """
+                df_contas_itens = pd.read_sql(query_contas_itens, self.conn)
+                
+                # APLICAR SEPARAÇÃO SE NECESSÁRIO
+                if "Código Fornecedor" in df_contas_itens.columns:
+                    df_contas_itens = self.separar_codigo_descricao(df_contas_itens, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # Reorganizar colunas se a separação foi aplicada
+                    if "Código" in df_contas_itens.columns and "Descrição Fornecedor" in df_contas_itens.columns:
+                        colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
+                                        [col for col in df_contas_itens.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                        df_contas_itens = df_contas_itens[colunas_ordenadas]
+                
+                df_contas_itens.to_excel(writer, sheet_name='Contas x Itens', index=False)
+
+            # ABA: "Resumo Adiantamentos" - APENAS PARA ADIANTAMENTOS
+            if export_type in ["all", "adiantamentos"]:
+                query_resumo_adiantamento = f"""
+                    SELECT 
+                        codigo_fornecedor as "Código Fornecedor",
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        total_financeiro as "Total Financeiro",
+                        total_contabil as "Total Contábil",
+                        diferenca as "Diferença",
+                        status as "Status",
+                        detalhes as "Detalhes"
+                    FROM 
+                        {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
+                    ORDER BY 
+                        ABS(diferenca) DESC,
+                        codigo_fornecedor
+                """
+                df_resumo_adiantamento = pd.read_sql(query_resumo_adiantamento, self.conn)
+                
+                # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+                if "Código Fornecedor" in df_resumo_adiantamento.columns:
+                    df_resumo_adiantamento = self.separar_codigo_descricao(df_resumo_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # Reorganizar colunas
+                    colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo_adiantamento.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                    df_resumo_adiantamento = df_resumo_adiantamento[colunas_ordenadas]
+                
+                df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
+
+            # ABA: "Resumo da Conciliação" (Principal) - APENAS PARA FORNECEDORES
+            if export_type in ["all", "fornecedores"]:
+                query_resumo = f"""
+                    SELECT 
+                        codigo_fornecedor as "Código Fornecedor",
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        saldo_contabil as "Saldo Contábil",
+                        saldo_financeiro as "Saldo Financeiro",
+                        (ABS(saldo_financeiro) - saldo_contabil) as "Diferença",
+                        CASE 
+                            WHEN (saldo_contabil - saldo_financeiro) > 0 THEN 'Contábil > Financeiro'
+                            WHEN (saldo_contabil - saldo_financeiro) < 0 THEN 'Financeiro > Contábil'
+                            ELSE 'Zerado'
+                        END as "Status"
+                    FROM 
+                        {self.settings.TABLE_RESULTADO}
+                    ORDER BY 
+                        ABS(saldo_contabil - saldo_financeiro) DESC
+                """
+                df_resumo = pd.read_sql(query_resumo, self.conn)
+                
+                # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+                if "Código Fornecedor" in df_resumo.columns:
+                    df_resumo = self.separar_codigo_descricao(df_resumo, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # Reorganizar colunas
+                    colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                    df_resumo = df_resumo[colunas_ordenadas]
+
+                # Garantir que as colunas sejam float antes de exportar
+                for col in ["Saldo Contábil", "Saldo Financeiro", "Diferença"]:
+                    if col in df_resumo.columns:
+                        df_resumo[col] = pd.to_numeric(df_resumo[col], errors="coerce").fillna(0)
+
+                df_resumo.to_excel(writer, sheet_name='Resumo da Conciliação', index=False)
 
             # Query para estatísticas de adiantamentos
             query_adiantamento_stats = f"""
@@ -1965,10 +1983,10 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Conferido' THEN 1 ELSE 0 END) as adiantamentos_ok,
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as adiantamentos_divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as adiantamentos_pendentes,
-                    ABS(SUM(total_financeiro)) as total_financeiro_adiantamento,  -- CORREÇÃO: ABS()
+                    ABS(SUM(total_financeiro)) as total_financeiro_adiantamento,
                     SUM(total_contabil) as total_contabil_adiantamento,
                     (
-                        ABS(SUM(total_financeiro)) - SUM(total_contabil)  -- CORREÇÃO: Financeiro - Contábil
+                        ABS(SUM(total_financeiro)) - SUM(total_contabil)
                     ) as diferenca_adiantamento
                 FROM 
                     {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
@@ -1976,53 +1994,115 @@ class DatabaseManager:
 
             adiantamento_stats = pd.read_sql(query_adiantamento_stats, self.conn).iloc[0]
 
-            # Cria aba de Metadados
-            metadata_items = [
-                'Data e Hora do Processamento',
-                'Período de Referência',
-                'Total de Fornecedores Processados',
-                'Conciliações Conferidas',
-                'Conciliações Divergentes',
-                'Conciliações Pendentes',
-                'Total Financeiro (R$)',
-                'Total Contábil (R$)',
-                'Diferença Total (R$)',
-                '--- ADIANTAMENTOS ---',
-                'Total de Adiantamentos Processados',
-                'Adiantamentos Divergentes', 
-                'Total Financeiro Adiantamentos (R$)',
-                'Total Contábil Adiantamentos (R$)',
-                'Saldo Líquido Adiantamentos (R$)',
-                '--- CONFIGURAÇÕES ---',
-                'Legenda de Status',
-                'Tolerância de Diferença'
-            ]
+            # Cria aba de Metadados específica para cada tipo
+            if export_type == "fornecedores":
+                metadata_items = [
+                    'Data e Hora do Processamento',
+                    'Período de Referência',
+                    'Total de Fornecedores Processados',
+                    'Conciliações Conferidas',
+                    'Conciliações Divergentes',
+                    'Conciliações Pendentes',
+                    'Total Financeiro (R$)', 
+                    'Total Contábil (R$)',
+                    'Diferença Total (R$)',
+                    '--- CONFIGURAÇÕES ---',
+                    'Legenda de Status',
+                    'Tolerância de Diferença'
+                ]
 
-            metadata_values = [
-                datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
-                f'{data_inicial} a {data_final}',
-                int(stats['total_registros']),
-                int(stats['conciliados_ok']),
-                int(stats['divergentes']),
-                int(stats['pendentes']),
-                f"R$ {stats['total_financeiro']:,.2f}",
-                f"R$ {stats['total_contabil']:,.2f}",
-                f"R$ {stats['diferenca_geral']:,.2f}",
-                '---',  # Separador
-                int(adiantamento_stats['total_adiantamentos']),
-                int(adiantamento_stats['adiantamentos_divergentes']),
-                f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",  # Já positivo
-                f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
-                f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",  # Agora: Financeiro - Contábil
-                '---',  # Separador
-                'CONFERIDO: Diferença dentro da tolerância (até 3%) | DIVERGENTE: Diferença significativa | PENDENTE: Sem correspondência',
-                'Até 3% de discrepância é considerada tolerável'
-            ]
+                metadata_values = [
+                    datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                    f'{data_inicial} a {data_final}',
+                    int(stats['total_registros']),
+                    int(stats['conciliados_ok']),
+                    int(stats['divergentes']),
+                    int(stats['pendentes']),
+                    f"R$ {stats['total_financeiro']:,.2f}",
+                    f"R$ {stats['total_contabil']:,.2f}",
+                    f"R$ {stats['diferenca_geral']:,.2f}",
+                    '---',
+                    'CONFERIDO: Diferença dentro da tolerância (até 3%) | DIVERGENTE: Diferença significativa | PENDENTE: Sem correspondência',
+                    'Até 3% de discrepância é considerada tolerável'
+                ]
+                
+            elif export_type == "adiantamentos":
+                metadata_items = [
+                    'Data e Hora do Processamento',
+                    'Período de Referência',
+                    'Total de Adiantamentos Processados',
+                    'Adiantamentos Conferidos',
+                    'Adiantamentos Divergentes',
+                    'Adiantamentos Pendentes',
+                    'Total Financeiro Adiantamentos (R$)',
+                    'Total Contábil Adiantamentos (R$)',
+                    'Diferença Total Adiantamentos (R$)',
+                    '--- CONFIGURAÇÕES ---',
+                    'Legenda de Status',
+                    'Tolerância de Diferença'
+                ]
+
+                metadata_values = [
+                    datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                    f'{data_inicial} a {data_final}',
+                    int(adiantamento_stats['total_adiantamentos']),
+                    int(adiantamento_stats['adiantamentos_ok']),
+                    int(adiantamento_stats['adiantamentos_divergentes']),
+                    int(adiantamento_stats['adiantamentos_pendentes']),
+                    f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",
+                    f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
+                    f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",
+                    '---',
+                    'CONFERIDO: Diferença dentro da tolerância (até 3%) | DIVERGENTE: Diferença significativa | PENDENTE: Sem correspondência',
+                    'Até 3% de discrepância é considerada tolerável'
+                ]
+                
+            else:  # all
+                metadata_items = [
+                    'Data e Hora do Processamento',
+                    'Período de Referência',
+                    'Total de Fornecedores Processados',
+                    'Conciliações Conferidas',
+                    'Conciliações Divergentes',
+                    'Conciliações Pendentes',
+                    'Total Financeiro (R$)',
+                    'Total Contábil (R$)',
+                    'Diferença Total (R$)',
+                    '--- ADIANTAMENTOS ---',
+                    'Total de Adiantamentos Processados',
+                    'Adiantamentos Divergentes', 
+                    'Total Financeiro Adiantamentos (R$)',
+                    'Total Contábil Adiantamentos (R$)',
+                    'Saldo Líquido Adiantamentos (R$)',
+                    '--- CONFIGURAÇÕES ---',
+                    'Legenda de Status',
+                    'Tolerância de Diferença'
+                ]
+
+                metadata_values = [
+                    datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                    f'{data_inicial} a {data_final}',
+                    int(stats['total_registros']),
+                    int(stats['conciliados_ok']),
+                    int(stats['divergentes']),
+                    int(stats['pendentes']),
+                    f"R$ {stats['total_financeiro']:,.2f}",
+                    f"R$ {stats['total_contabil']:,.2f}",
+                    f"R$ {stats['diferenca_geral']:,.2f}",
+                    '---',
+                    int(adiantamento_stats['total_adiantamentos']),
+                    int(adiantamento_stats['adiantamentos_divergentes']),
+                    f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",
+                    f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
+                    f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",
+                    '---',
+                    'CONFERIDO: Diferença dentro da tolerância (até 3%) | DIVERGENTE: Diferença significativa | PENDENTE: Sem correspondência',
+                    'Até 3% de discrepância é considerada tolerável'
+                ]
 
             # VERIFICAÇÃO DE COMPRIMENTO
             if len(metadata_items) != len(metadata_values):
                 logger.error(f"Metadados incompatíveis: {len(metadata_items)} itens vs {len(metadata_values)} valores")
-                # Ajusta para ter o mesmo comprimento
                 min_length = min(len(metadata_items), len(metadata_values))
                 metadata_items = metadata_items[:min_length]
                 metadata_values = metadata_values[:min_length]
@@ -2042,73 +2122,97 @@ class DatabaseManager:
             # Aplica estilos à aba Metadados
             if "Metadados" in workbook.sheetnames:
                 meta_sheet = workbook["Metadados"]
-
-                # Preenche itens e valores de metadados
                 for row_idx, (item, value) in enumerate(zip(metadata_items, metadata_values), 1):
                     meta_sheet.cell(row=row_idx, column=1, value=item)
                     meta_sheet.cell(row=row_idx, column=2, value=value)
-
-                # Só depois aplica estilos
                 self._apply_metadata_styles(meta_sheet, metadata_items, metadata_values)
             
-            # Aplica estilos melhorados à aba Resumo da Conciliação
-            if 'Resumo da Conciliação' in workbook.sheetnames:
+            # Aplica estilos melhorados às abas principais
+            if export_type in ["all", "fornecedores"] and 'Resumo da Conciliação' in workbook.sheetnames:
                 resumo_sheet = workbook['Resumo da Conciliação']
                 self._apply_enhanced_styles(resumo_sheet, stats)
-                
-                # Adiciona filtros automáticos
                 resumo_sheet.auto_filter.ref = resumo_sheet.dimensions
+                
+            if export_type in ["all", "adiantamentos"] and 'Resumo Adiantamentos' in workbook.sheetnames:
+                adiantamento_sheet = workbook['Resumo Adiantamentos']
+                self._apply_enhanced_styles(adiantamento_sheet, adiantamento_stats)
+                adiantamento_sheet.auto_filter.ref = adiantamento_sheet.dimensions
             
             # Aplica estilos básicos às outras abas
             for sheetname in workbook.sheetnames:
-                if sheetname not in ['Resumo da Conciliação', 'Metadados']:
+                if sheetname not in ['Resumo da Conciliação', 'Resumo Adiantamentos', 'Metadados']:
                     sheet = workbook[sheetname]
                     self._apply_styles(sheet)
             
-            
-            # Protege todas as abas (exceto coluna Observações)
+            # Protege todas as abas
             self._protect_sheets(workbook)
             
             workbook.save(output_path)
             
             # Valida o arquivo gerado
-            if not self.validate_output(output_path):
+            if not self.validate_output(output_path, export_type):
                 raise ValueError("A validação da planilha gerada falhou")
-            
+                        
             logger.info(f"Arquivo exportado com sucesso: {output_path}")
             return output_path
+            
         except Exception as e:
             error_msg = f"Erro ao exportar resultados: {e}"
             logger.error(error_msg)
             raise ResultsSaveError(error_msg, caminho=output_path) from e
-    
-    def validate_output(self, output_path):
+
+    def validate_output(self, output_path, export_type="all"):
         """
-        Valida a estrutura do arquivo Excel gerado e a formatação monetária.
+        Valida a estrutura do arquivo Excel gerado.
+        
+        Args:
+            output_path: Caminho do arquivo a ser validado
+            export_type: Tipo de exportação (opcional, padrão "all")
         """
         try:
             wb = openpyxl.load_workbook(output_path)
             
-            # Verifica abas obrigatórias
-            required_sheets = ['Resumo da Conciliação', 'Fornecedores Nacionais', 'Balancete', 'Contas x Itens', 'Metadados']
+            # Define as abas obrigatórias baseadas no tipo de exportação
+            if export_type == "fornecedores":
+                required_sheets = ['Resumo da Conciliação', 'Fornecedores Nacionais', 'Balancete', 'Contas x Itens', 'Metadados']
+            elif export_type == "adiantamentos":
+                required_sheets = ['Resumo Adiantamentos', 'Adiantamento de Fornecedores Nacionais', 'Adiantamento', 'Metadados']
+            else:
+                required_sheets = ['Resumo da Conciliação', 'Fornecedores Nacionais', 'Balancete', 'Contas x Itens', 
+                                'Resumo Adiantamentos', 'Adiantamento de Fornecedores Nacionais', 'Adiantamento', 'Metadados']
+            
             for sheet in required_sheets:
                 if sheet not in wb.sheetnames:
                     raise ValueError(f"Aba '{sheet}' não encontrada no arquivo gerado")
             
-            # Verifica formatação monetária na aba Resumo
-            resumo = wb['Resumo da Conciliação']
-            monetary_columns = ['Valor Financeiro', 'Valor Contábil', 'Diferença']
+            # Verifica formatação monetária nas abas principais
+            if export_type in ["all", "fornecedores"] and 'Resumo da Conciliação' in wb.sheetnames:
+                resumo = wb['Resumo da Conciliação']
+                monetary_columns = ['Saldo Financeiro', 'Saldo Contábil', 'Diferença']
+                
+                header = [cell.value for cell in resumo[1] if cell.value is not None]
+                
+                for col_name in monetary_columns:
+                    if col_name in header:
+                        col_idx = header.index(col_name) + 1
+                        sample_cell = resumo.cell(row=2, column=col_idx)
+                        if sample_cell.value is not None and hasattr(sample_cell, 'number_format'):
+                            if 'R$' not in sample_cell.number_format and '#,##0.00' not in sample_cell.number_format:
+                                logger.warning(f"Coluna '{col_name}' não está formatada como moeda brasileira")
             
-            header = [cell.value for cell in resumo[1] if cell.value is not None]
-            
-            for col_name in monetary_columns:
-                if col_name in header:
-                    col_idx = header.index(col_name) + 1
-                    # Verifica se pelo menos uma célula tem formatação monetária
-                    sample_cell = resumo.cell(row=2, column=col_idx)
-                    if sample_cell.value is not None and hasattr(sample_cell, 'number_format'):
-                        if 'R$' not in sample_cell.number_format and '#,##0.00' not in sample_cell.number_format:
-                            raise ValueError(f"Coluna '{col_name}' não está formatada como moeda brasileira")
+            if export_type in ["all", "adiantamentos"] and 'Resumo Adiantamentos' in wb.sheetnames:
+                adiantamento = wb['Resumo Adiantamentos']
+                monetary_columns = ['Total Financeiro', 'Total Contábil', 'Diferença']
+                
+                header = [cell.value for cell in adiantamento[1] if cell.value is not None]
+                
+                for col_name in monetary_columns:
+                    if col_name in header:
+                        col_idx = header.index(col_name) + 1
+                        sample_cell = adiantamento.cell(row=2, column=col_idx)
+                        if sample_cell.value is not None and hasattr(sample_cell, 'number_format'):
+                            if 'R$' not in sample_cell.number_format and '#,##0.00' not in sample_cell.number_format:
+                                logger.warning(f"Coluna '{col_name}' não está formatada como moeda brasileira")
             
             return True
             
@@ -2116,7 +2220,6 @@ class DatabaseManager:
             error_msg = f"Validação falhou: {e}"
             logger.error(error_msg)
             return False
-
     def close(self):
         """Fecha a conexão com o banco de dados"""
         if self.conn:
