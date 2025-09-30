@@ -1799,41 +1799,15 @@ class DatabaseManager:
                         credito as "Crédito",
                         saldo_atual as "Saldo Atual",
                         tipo_fornecedor as "Tipo Fornecedor"
-                    FROM (
-                        SELECT 
-                            conta_contabil,
-                            descricao_conta,
-                            codigo_fornecedor,
-                            descricao_fornecedor,
-                            saldo_anterior,
-                            debito,
-                            credito,
-                            saldo_atual,
-                            tipo_fornecedor,
-                            1 as ordem
-                        FROM {self.settings.TABLE_MODELO1}
-                        WHERE descricao_conta LIKE '%FORNEC%'
-                        AND conta_contabil NOT LIKE '1.01.06.02%'
+                    FROM 
+                        {self.settings.TABLE_MODELO1}
+                    WHERE 
+                        descricao_conta LIKE '%FORNEC%'
+                        AND conta_contabil NOT LIKE '1.01.06.02%'  -- Exclui contas de adiantamento
                         AND descricao_conta NOT LIKE '%OUTROS%'
-
-                        UNION ALL
-
-                        SELECT 
-                            conta_contabil,
-                            'Adiantamento de Fornecedores' as descricao_conta,
-                            codigo_fornecedor,
-                            descricao_fornecedor,
-                            saldo_anterior,
-                            0 as debito,
-                            0 as credito,
-                            saldo_atual,
-                            'ADIANTAMENTO' as tipo_fornecedor,
-                            2 as ordem
-                        FROM {self.settings.TABLE_ADIANTAMENTO}
-                        WHERE conta_contabil LIKE '1.01.06.02%'
-
-                        ORDER BY ordem, conta_contabil, codigo_fornecedor
-                    )
+                        AND descricao_conta NOT LIKE '%ADIANTAMENTO%'  -- Exclui explicitamente adiantamentos
+                    ORDER BY 
+                        conta_contabil, codigo_fornecedor
                 """
                 df_contabil = pd.read_sql(query_contabil, self.conn)
 
