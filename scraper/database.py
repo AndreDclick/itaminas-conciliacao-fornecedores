@@ -547,7 +547,7 @@ class DatabaseManager:
                 df = self._clean_modelo1_data(df)
             elif sheet_type == 'contas_itens':
                 df = self._clean_contas_itens_data(df)
-            elif sheet_type == 'adiantamento':  # ADICIONE ESTA CONDIÇÃO
+            elif sheet_type == 'adiantamento':  
                 df = self._clean_adiantamento_data(df)
             
             df = df.drop_duplicates()  # Remove duplicatas
@@ -714,7 +714,7 @@ class DatabaseManager:
                 df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
                 df['codigo_fornecedor'] = df['codigo_fornecedor'].str.replace(r'^(AF|F)', '', regex=True)
 
-            # Tenta extrair código do fornecedor da descrição da conta
+            # Extrai código do fornecedor da descrição da conta
             if df['codigo_fornecedor'].isna().all() and 'descricao_conta' in df.columns:
                 df['codigo_fornecedor'] = df['descricao_conta'].str.extract(r'(\d{4,})', expand=False)
                 df['descricao_fornecedor'] = df['descricao_conta']
@@ -763,7 +763,7 @@ class DatabaseManager:
 
         if is_credito:
             valor_float = -valor_float
-        # se for débito, mantém positivo
+        # crédito agora é negativo
 
         return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -1119,40 +1119,7 @@ class DatabaseManager:
             raise ExcecaoNaoMapeadaError(error_msg) from e
     
 
-    # def _get_datas_referencia(self):
-    #     """
-    #     Retorna datas de referência para o processamento da conciliação.
-    #     Executa nos dias 20 e último dia do mês, ajustando para dias úteis.
-        
-    #     Returns:
-    #         tuple: (data_inicial, data_final) formatadas como strings
-    #     """
-    #     cal = Brazil()
-    #     hoje = datetime.now().date()
-        
-    #     # Verifica se é dia 20 ou último dia do mês
-    #     ultimo_dia_mes = self._ultimo_dia_mes(hoje)
-        
-    #     if hoje.day == 20 or hoje == ultimo_dia_mes:
-    #         # Ajusta para o próximo dia útil se for fim de semana/feriado
-    #         data_execucao = cal.add_working_days(hoje, 0)
-    #     else:
-    #         # Se não for dia de execução, retorna None
-    #         return None, None
-        
-    #     # Define as datas de referência baseadas no dia de execução
-    #     if data_execucao.day == 20:
-    #         # Execução no dia 20 - refere-se ao mês atual
-    #         data_inicial = data_execucao.replace(day=1)
-    #         data_final = data_execucao.replace(day=20)
-    #     else:
-    #         # Execução no último dia - refere-se ao mês anterior
-    #         mes_anterior = data_execucao.replace(day=1) - timedelta(days=1)
-    #         data_inicial = mes_anterior.replace(day=1)
-    #         data_final = self._ultimo_dia_mes(mes_anterior)
-        
-    #     return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
-
+    
     def _get_datas_referencia(self):
         try:
             cal = Brazil()
@@ -1628,7 +1595,6 @@ class DatabaseManager:
     def separar_codigo_descricao(self, df, coluna_origem="Fornecedor", col_codigo="Codigo", col_descricao="Descricao"):
         """
         Separa código e descrição de uma coluna (ex: '000123-EMPRESA XYZ').
-        Versão melhorada para lidar com diferentes formatos.
         """
         if coluna_origem in df.columns:
             # Faz uma cópia para evitar SettingWithCopyWarning

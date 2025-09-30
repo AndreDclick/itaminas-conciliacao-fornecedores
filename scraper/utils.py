@@ -139,19 +139,19 @@ class Utils:
                 ultimo_dia_anterior = calendar.monthrange(ano, mes - 1)[1]
                 data_final = datetime(ano, mes - 1, ultimo_dia_anterior)
         
-        elif dia == 20:
-            # Regra para dia 20
-            # Data Inicial: primeiro dia do mês atual
-            data_inicial = datetime(ano, mes, 1)
+        # elif dia == 20:
+        #     # Regra para dia 20
+        #     # Data Inicial: primeiro dia do mês atual
+        #     data_inicial = datetime(ano, mes, 1)
             
-            # Data Final: dia 20 do mês atual
-            data_final = datetime(ano, mes, 20)
+        #     # Data Final: dia 20 do mês atual
+        #     data_final = datetime(ano, mes, 20)
         
-        else:
-            # Para outros dias, use as regras padrão ou defina um comportamento alternativo
-            # Aqui estou usando o mesmo comportamento do dia 20 como padrão
-            data_inicial = datetime(ano, mes, 1)
-            data_final = datetime(ano, mes, min(dia, 20))  # Usa o menor entre o dia atual e 20
+        # else:
+        #     # Para outros dias, use as regras padrão ou defina um comportamento alternativo
+        #     # Aqui estou usando o mesmo comportamento do dia 20 como padrão
+        #     data_inicial = datetime(ano, mes, 1)
+        #     data_final = datetime(ano, mes, min(dia, 20))  # Usa o menor entre o dia atual e 20
         
         # Formata as datas para o padrão DD/MM/YYYY
         data_inicial_str = data_inicial.strftime('%d/%m/%Y')
