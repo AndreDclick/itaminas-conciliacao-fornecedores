@@ -1675,18 +1675,17 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
                     ABS(SUM(saldo_financeiro)) as total_financeiro,
                     (
-                        SUM(saldo_contabil) + 
-                        (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
-                        (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_MODELO1} 
-                        WHERE conta_contabil LIKE '1.01.06.02.0001%' OR descricao_conta LIKE '%Adiantamento%Fornecedor%')
+                        -- Soma dos saldos consolidados (igual ao mostrado na aba Balancete)
+                        SELECT COALESCE(SUM(saldo_atual), 0)
+                        FROM {self.settings.TABLE_MODELO1} 
+                        WHERE descricao_conta IN ('FORNECEDORES NACIONAIS')
                     ) as total_contabil,
                     (
                         ABS(SUM(saldo_financeiro)) -
                         (
-                            SUM(saldo_contabil) + 
-                            (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_ADIANTAMENTO}) +
-                            (SELECT COALESCE(SUM(saldo_atual),0) FROM {self.settings.TABLE_MODELO1} 
-                            WHERE conta_contabil LIKE '1.01.06.02.0001%' OR descricao_conta LIKE '%Adiantamento%Fornecedor%')
+                            SELECT COALESCE(SUM(saldo_atual), 0)
+                            FROM {self.settings.TABLE_MODELO1} 
+                            WHERE descricao_conta IN ('FORNECEDORES NACIONAIS')
                         )
                     ) as diferenca_geral,
                     SUM(CASE WHEN status = 'Divergente' THEN diferenca ELSE 0 END) as total_divergencia
@@ -1790,22 +1789,18 @@ class DatabaseManager:
             if export_type in ["all", "fornecedores"]:
                 query_contabil = f"""
                     SELECT 
-                        conta_contabil as "Conta Contábil",
-                        descricao_conta as "Descrição Conta",
-                        codigo_fornecedor as "Código Fornecedor",
-                        descricao_fornecedor as "Descrição Fornecedor",
-                        saldo_anterior as "Saldo Anterior",
-                        debito as "Débito",
-                        credito as "Crédito",
-                        saldo_atual as "Saldo Atual",
-                        tipo_fornecedor as "Tipo Fornecedor"
+                        conta_contabil as "Codigo",
+                        descricao_conta as "Descricao",
+                        codigo_fornecedor as "Codigo",
+                        saldo_anterior as "Saldo anterior",
+                        debito as "Debito", 
+                        credito as "Credito",
+                        saldo_atual as "Saldo atual"
                     FROM 
                         {self.settings.TABLE_MODELO1}
                     WHERE 
-                        descricao_conta LIKE '%FORNEC%'
-                        AND conta_contabil NOT LIKE '1.01.06.02%'  -- Exclui contas de adiantamento
-                        AND descricao_conta NOT LIKE '%OUTROS%'
-                        AND descricao_conta NOT LIKE '%ADIANTAMENTO%'  -- Exclui explicitamente adiantamentos
+                        (descricao_conta LIKE '%FORNEC%' OR tipo_fornecedor LIKE '%FORNEC%')
+                        AND conta_contabil LIKE '2.01.02.01.0001%'
                     ORDER BY 
                         conta_contabil, codigo_fornecedor
                 """
@@ -1815,17 +1810,13 @@ class DatabaseManager:
                 if 'ordem' in df_contabil.columns:
                     df_contabil.drop(columns=["ordem"], inplace=True)
 
-                # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-                if "Código Fornecedor" in df_contabil.columns:
-                    df_contabil = self.separar_codigo_descricao(df_contabil, "Código Fornecedor", "Código", "Descrição Fornecedor")
-                    
-                    # Reorganizar colunas se a separação foi aplicada
-                    if "Código" in df_contabil.columns and "Descrição Fornecedor" in df_contabil.columns:
-                        colunas_ordenadas = ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor"] + \
-                                        [col for col in df_contabil.columns if col not in ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
-                        df_contabil = df_contabil[colunas_ordenadas]
+                # Aplica formatação monetária nas colunas numéricas
+                monetary_columns = ['Saldo anterior', 'Debito', 'Credito', 'Saldo atual']
+                for col in monetary_columns:
+                    if col in df_contabil.columns:
+                        df_contabil[col] = df_contabil[col].apply(self.formatar_credito)
 
-                df_contabil.to_excel(writer, sheet_name="Balancete", index=False)
+                df_contabil.to_excel(writer, sheet_name='Balancete', index=False)
                 
             # ABA: "Adiantamento" (Dados de Adiantamentos) - APENAS PARA ADIANTAMENTOS
             if export_type in ["all", "adiantamentos"]:
