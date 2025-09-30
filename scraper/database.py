@@ -561,12 +561,7 @@ class DatabaseManager:
     def _clean_financeiro_data(self, df):
         """
         Limpeza específica para dados financeiros.
-        
-        Args:
-            df: DataFrame com dados financeiros
-            
-        Returns:
-            DataFrame: DataFrame limpo
+        Aplica separação de código e descrição durante a importação.
         """
         try:
             # Diagnóstico inicial das colunas de data
@@ -577,6 +572,18 @@ class DatabaseManager:
                     logger.info(f"  Tipo: {df[date_col].dtype}")
                     logger.info(f"  Primeiros valores: {df[date_col].head().tolist()}")
                     logger.info(f"  Valores únicos: {df[date_col].unique()[:5]}")
+
+            # APLICA SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO DURANTE A IMPORTÇÃO
+            if 'fornecedor' in df.columns:
+                logger.info("Aplicando separação de código e descrição na coluna 'fornecedor'")
+                df = self.separar_codigo_descricao(df, 'fornecedor', 'codigo_fornecedor', 'descricao_fornecedor')
+                
+                # Log dos resultados da separação
+                if 'codigo_fornecedor' in df.columns and 'descricao_fornecedor' in df.columns:
+                    logger.info(f"Separação concluída - Exemplos:")
+                    sample_data = df[['fornecedor', 'codigo_fornecedor', 'descricao_fornecedor']].head(5)
+                    for idx, row in sample_data.iterrows():
+                        logger.info(f"  '{row['fornecedor']}' -> '{row['codigo_fornecedor']}' / '{row['descricao_fornecedor']}'")
 
             for date_col in ['data_emissao', 'data_vencimento']:
                 if date_col in df.columns:
@@ -632,6 +639,12 @@ class DatabaseManager:
                             'data_emissao', 'data_vencimento', 'valor_original',
                             'saldo_devedor', 'situacao', 'conta_contabil', 'centro_custo']
             
+            # Adiciona colunas de código e descrição se foram criadas
+            if 'codigo_fornecedor' in df.columns:
+                required_cols.append('codigo_fornecedor')
+            if 'descricao_fornecedor' in df.columns:
+                required_cols.append('descricao_fornecedor')
+            
             for col in required_cols:
                 if col not in df.columns:
                     df[col] = np.nan
@@ -667,14 +680,22 @@ class DatabaseManager:
     def _clean_modelo1_data(self, df):
         """
         Limpeza específica para dados do modelo1 (ctbr040).
-        
-        Args:
-            df: DataFrame com dados do modelo1
-            
-        Returns:
-            DataFrame: DataFrame limpo
+        Aplica separação de código e descrição durante a importação.
         """
         try:
+            # APLICA SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO SE NECESSÁRIO
+            if 'descricao_conta' in df.columns:
+                # Tenta separar código e descrição da coluna descricao_conta
+                df = self.separar_codigo_descricao(df, 'descricao_conta', 'codigo_fornecedor_temp', 'descricao_fornecedor_temp')
+                
+                # Se não temos código_fornecedor, usa o temporário
+                if 'codigo_fornecedor' not in df.columns or df['codigo_fornecedor'].isna().all():
+                    if 'codigo_fornecedor_temp' in df.columns:
+                        df['codigo_fornecedor'] = df['codigo_fornecedor_temp']
+                        df['descricao_fornecedor'] = df['descricao_fornecedor_temp']
+                        df = df.drop(['codigo_fornecedor_temp', 'descricao_fornecedor_temp'], axis=1, errors='ignore')
+                        logger.info("Código e descrição extraídos da coluna descricao_conta")
+
             # Classifica tipo de fornecedor baseado na descrição da conta
             if 'descricao_conta' in df.columns:
                 df['tipo_fornecedor'] = df['descricao_conta'].apply(
@@ -748,7 +769,23 @@ class DatabaseManager:
 
 
     def _clean_contas_itens_data(self, df):
+        """
+        Limpeza específica para dados de contas_itens.
+        Aplica separação de código e descrição durante a importação.
+        """
         try:
+            # APLICA SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO SE NECESSÁRIO
+            if 'descricao_item' in df.columns:
+                df = self.separar_codigo_descricao(df, 'descricao_item', 'codigo_fornecedor_temp', 'descricao_fornecedor_temp')
+                
+                # Se não temos código_fornecedor, usa o temporário
+                if 'codigo_fornecedor' not in df.columns or df['codigo_fornecedor'].isna().all():
+                    if 'codigo_fornecedor_temp' in df.columns:
+                        df['codigo_fornecedor'] = df['codigo_fornecedor_temp']
+                        df['descricao_fornecedor'] = df['descricao_fornecedor_temp']
+                        df = df.drop(['codigo_fornecedor_temp', 'descricao_fornecedor_temp'], axis=1, errors='ignore')
+                        logger.info("Código e descrição extraídos da coluna descricao_item")
+
             if 'codigo_fornecedor' in df.columns:
                 df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
                 df['codigo_fornecedor'] = df['codigo_fornecedor'].str.replace(r'^(AF|F)', '', regex=True)
@@ -777,15 +814,20 @@ class DatabaseManager:
     def _clean_adiantamento_data(self, df):
         """
         Limpeza específica para dados de adiantamentos.
-        
-        Args:
-            df: DataFrame com dados de adiantamentos
-            
-        Returns:
-            DataFrame: DataFrame limpo
+        Aplica separação de código e descrição durante a importação.
         """
         try:
-            # Aplica o mesmo mapeamento reverso que em contas_itens
+            # APLICA SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO SE NECESSÁRIO
+            if 'descricao_item' in df.columns:
+                df = self.separar_codigo_descricao(df, 'descricao_item', 'codigo_fornecedor_temp', 'descricao_fornecedor_temp')
+                
+                # Se não temos código_fornecedor, usa o temporário
+                if 'codigo_fornecedor' not in df.columns or df['codigo_fornecedor'].isna().all():
+                    if 'codigo_fornecedor_temp' in df.columns:
+                        df['codigo_fornecedor'] = df['codigo_fornecedor_temp']
+                        df['descricao_fornecedor'] = df['descricao_fornecedor_temp']
+                        df = df.drop(['codigo_fornecedor_temp', 'descricao_fornecedor_temp'], axis=1, errors='ignore')
+                        logger.info("Código e descrição extraídos da coluna descricao_item (adiantamento)")
 
             if 'codigo_fornecedor' in df.columns:
                 df['codigo_fornecedor'] = df['codigo_fornecedor'].astype(str).str.strip()
@@ -1583,11 +1625,53 @@ class DatabaseManager:
             logger.error(error_msg)
             raise
 
+    def separar_codigo_descricao(self, df, coluna_origem="Fornecedor", col_codigo="Codigo", col_descricao="Descricao"):
+        """
+        Separa código e descrição de uma coluna (ex: '000123-EMPRESA XYZ').
+        Versão melhorada para lidar com diferentes formatos.
+        """
+        if coluna_origem in df.columns:
+            # Faz uma cópia para evitar SettingWithCopyWarning
+            df = df.copy()
+            
+            # Inicializa as novas colunas
+            df[col_codigo] = ""
+            df[col_descricao] = ""
+            
+            for idx, valor in df[coluna_origem].items():
+                if pd.notna(valor) and str(valor).strip() != "":
+                    valor_str = str(valor).strip()
+                    
+                    # Padrão: código-descrição (000123-EMPRESA XYZ)
+                    if "-" in valor_str:
+                        partes = valor_str.split("-", 1)  # Split apenas na primeira ocorrência
+                        if len(partes) == 2:
+                            df.at[idx, col_codigo] = partes[0].strip()
+                            df.at[idx, col_descricao] = partes[1].strip()
+                        else:
+                            # Se tiver múltiplos hífens, junta tudo exceto a primeira parte
+                            df.at[idx, col_codigo] = partes[0].strip()
+                            df.at[idx, col_descricao] = "-".join(partes[1:]).strip()
+                    else:
+                        # Se não tem hífen, tenta separar por espaço
+                        partes = valor_str.split(" ", 1)
+                        if len(partes) == 2 and partes[0].isdigit():
+                            df.at[idx, col_codigo] = partes[0].strip()
+                            df.at[idx, col_descricao] = partes[1].strip()
+                        else:
+                            # Se não consegue separar, coloca tudo na descrição
+                            df.at[idx, col_descricao] = valor_str
+                            df.at[idx, col_codigo] = "N/A"
+            
+            logger.info(f"Separação concluída: {len(df)} registros processados")
+            logger.info(f"Exemplo: {df[[coluna_origem, col_codigo, col_descricao]].head().to_string()}")
+        
+        return df
+
     def export_to_excel(self):
         """
         Exporta resultados para arquivo Excel formatado com metadados.
         """
-        
         data_inicial_iso, data_final_iso = self._get_datas_referencia()
         try:
             data_inicial = datetime.strptime(data_inicial_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
@@ -1635,7 +1719,7 @@ class DatabaseManager:
 
             stats = pd.read_sql(query_stats, self.conn).iloc[0]
 
-            # ABA: "Títulos a Pagar" (Dados Financeiros) - VERIFICAÇÃO DE DATAS
+            # ABA: "Fornecedores Nacionais" (Dados Financeiros) - COM SEPARAÇÃO DE CÓDIGO/DESCRIÇÃO
             query_financeiro = f"""
                 SELECT 
                     fornecedor as "Fornecedor",
@@ -1665,15 +1749,21 @@ class DatabaseManager:
             """
             df_financeiro = pd.read_sql(query_financeiro, self.conn)
             
+            # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
+            df_financeiro = self.separar_codigo_descricao(df_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
+            
+            # Reorganizar colunas para ter Código e Descrição primeiro
+            colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
+            df_financeiro = df_financeiro[colunas_ordenadas]
+
             # Verifica se há problemas com as datas
             logger.info(f"Total de registros financeiros: {len(df_financeiro)}")
             df_financeiro['Data Emissão'] = pd.to_datetime(df_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
             df_financeiro['Data Vencimento'] = pd.to_datetime(df_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
-            
             df_financeiro.to_excel(writer, sheet_name='Fornecedores Nacionais', index=False)
 
-            # NOVA ABA: "Adiantamentos de Títulos a Pagar" (Dados Financeiros) - VERIFICAÇÃO DE DATAS
+            # ABA: "Adiantamento de Fornecedores Nacionais" (Dados Financeiros) - COM SEPARAÇÃO
             query_adi_financeiro = f"""
                 SELECT 
                     fornecedor as "Fornecedor",
@@ -1697,18 +1787,24 @@ class DatabaseManager:
                     {self.settings.TABLE_FINANCEIRO}
                 WHERE 
                     excluido = 0
-                    AND UPPER(tipo_titulo) NOT IN ('NF', 'FT', 'BOL', 'EMP', 'TX', 'INS', 'ISS', 'TXA', 'IRF')
+                    AND UPPER(tipo_titulo) IN ('NDF', 'PA')
                 ORDER BY 
                     fornecedor, titulo, parcela
             """
             df_adi_financeiro = pd.read_sql(query_adi_financeiro, self.conn)
             
+            # APLICAR SEPARAÇÃO DE CÓDIGO E DESCRIÇÃO
+            df_adi_financeiro = self.separar_codigo_descricao(df_adi_financeiro, "Fornecedor", "Código", "Descrição Fornecedor")
+            
+            # Reorganizar colunas
+            colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_adi_financeiro.columns if col not in ["Código", "Descrição Fornecedor", "Fornecedor"]]
+            df_adi_financeiro = df_adi_financeiro[colunas_ordenadas]
+            
             # Verifica se há problemas com as datas
-            logger.info(f"Total de registros financeiros: {len(df_adi_financeiro)}")
+            logger.info(f"Total de registros financeiros de adiantamento: {len(df_adi_financeiro)}")
             df_adi_financeiro['Data Emissão'] = pd.to_datetime(df_adi_financeiro['Data Emissão'], errors='coerce').dt.strftime('%d/%m/%Y')
             df_adi_financeiro['Data Vencimento'] = pd.to_datetime(df_adi_financeiro['Data Vencimento'], errors='coerce').dt.strftime('%d/%m/%Y')
 
-            
             df_adi_financeiro.to_excel(writer, sheet_name='Adiantamento de Fornecedores Nacionais', index=False)
 
             # ABA: "Balancete" (Dados Contábeis) 
@@ -1765,6 +1861,16 @@ class DatabaseManager:
             if 'ordem' in df_contabil.columns:
                 df_contabil.drop(columns=["ordem"], inplace=True)
 
+            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+            if "Código Fornecedor" in df_contabil.columns:
+                df_contabil = self.separar_codigo_descricao(df_contabil, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas se a separação foi aplicada
+                if "Código" in df_contabil.columns and "Descrição Fornecedor" in df_contabil.columns:
+                    colunas_ordenadas = ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor"] + \
+                                    [col for col in df_contabil.columns if col not in ["Conta Contábil", "Descrição Conta", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                    df_contabil = df_contabil[colunas_ordenadas]
+
             df_contabil.to_excel(writer, sheet_name="Balancete", index=False)
             
             # ABA: "Adiantamento" (Dados de Adiantamentos)
@@ -1782,6 +1888,17 @@ class DatabaseManager:
                     conta_contabil, codigo_fornecedor
             """
             df_adiantamento = pd.read_sql(query_adiantamento, self.conn)
+            
+            # APLICAR SEPARAÇÃO SE NECESSÁRIO
+            if "Código Fornecedor" in df_adiantamento.columns:
+                df_adiantamento = self.separar_codigo_descricao(df_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas se a separação foi aplicada
+                if "Código" in df_adiantamento.columns and "Descrição Fornecedor" in df_adiantamento.columns:
+                    colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
+                                    [col for col in df_adiantamento.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                    df_adiantamento = df_adiantamento[colunas_ordenadas]
+            
             df_adiantamento.to_excel(writer, sheet_name='Adiantamento', index=False)
             
             # ABA: "Contas x Itens" (Detalhamento Contábil)
@@ -1799,9 +1916,20 @@ class DatabaseManager:
                     conta_contabil, codigo_fornecedor
             """
             df_contas_itens = pd.read_sql(query_contas_itens, self.conn)
+            
+            # APLICAR SEPARAÇÃO SE NECESSÁRIO
+            if "Código Fornecedor" in df_contas_itens.columns:
+                df_contas_itens = self.separar_codigo_descricao(df_contas_itens, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas se a separação foi aplicada
+                if "Código" in df_contas_itens.columns and "Descrição Fornecedor" in df_contas_itens.columns:
+                    colunas_ordenadas = ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor"] + \
+                                    [col for col in df_contas_itens.columns if col not in ["Conta Contábil", "Descrição Item", "Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                    df_contas_itens = df_contas_itens[colunas_ordenadas]
+            
             df_contas_itens.to_excel(writer, sheet_name='Contas x Itens', index=False)
 
-            # NOVA ABA: "Resumo Adiantamentos"
+            # ABA: "Resumo Adiantamentos" - COM SEPARAÇÃO
             query_resumo_adiantamento = f"""
                 SELECT 
                     codigo_fornecedor as "Código Fornecedor",
@@ -1818,9 +1946,18 @@ class DatabaseManager:
                     codigo_fornecedor
             """
             df_resumo_adiantamento = pd.read_sql(query_resumo_adiantamento, self.conn)
+            
+            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+            if "Código Fornecedor" in df_resumo_adiantamento.columns:
+                df_resumo_adiantamento = self.separar_codigo_descricao(df_resumo_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas
+                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo_adiantamento.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                df_resumo_adiantamento = df_resumo_adiantamento[colunas_ordenadas]
+            
             df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
 
-            # ABA: "Resumo da Conciliação" (Principal)
+            # ABA: "Resumo da Conciliação" (Principal) - COM SEPARAÇÃO
             query_resumo = f"""
                 SELECT 
                     codigo_fornecedor as "Código Fornecedor",
@@ -1839,9 +1976,17 @@ class DatabaseManager:
                     ABS(saldo_contabil - saldo_financeiro) DESC
             """
             df_resumo = pd.read_sql(query_resumo, self.conn)
+            
+            # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
+            if "Código Fornecedor" in df_resumo.columns:
+                df_resumo = self.separar_codigo_descricao(df_resumo, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                
+                # Reorganizar colunas
+                colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
+                df_resumo = df_resumo[colunas_ordenadas]
 
             # Garantir que as colunas sejam float antes de exportar
-            for col in ["Saldo Contábil", "Saldo Financeiro", "Diferença (Contábil - Financeiro)"]:
+            for col in ["Saldo Contábil", "Saldo Financeiro", "Diferença"]:
                 if col in df_resumo.columns:
                     df_resumo[col] = pd.to_numeric(df_resumo[col], errors="coerce").fillna(0)
 
@@ -1899,7 +2044,7 @@ class DatabaseManager:
                 f"R$ {stats['diferenca_geral']:,.2f}",
                 '---',  # Separador
                 int(adiantamento_stats['total_adiantamentos']),
-    int(adiantamento_stats['adiantamentos_divergentes']),
+                int(adiantamento_stats['adiantamentos_divergentes']),
                 f"R$ {adiantamento_stats['total_financeiro_adiantamento']:,.2f}",  # Já positivo
                 f"R$ {adiantamento_stats['total_contabil_adiantamento']:,.2f}",
                 f"R$ {adiantamento_stats['diferenca_adiantamento']:,.2f}",  # Agora: Financeiro - Contábil
@@ -1948,13 +2093,6 @@ class DatabaseManager:
                 # Adiciona filtros automáticos
                 resumo_sheet.auto_filter.ref = resumo_sheet.dimensions
             
-            if 'Resumo da Conciliação' in workbook.sheetnames:
-                resumo_sheet = workbook['Resumo da Conciliação']
-                self._apply_enhanced_styles(resumo_sheet, stats)
-                
-                # Adiciona filtros automáticos
-                resumo_sheet.auto_filter.ref = resumo_sheet.dimensions
-            
             # Aplica estilos básicos às outras abas
             for sheetname in workbook.sheetnames:
                 if sheetname not in ['Resumo da Conciliação', 'Metadados']:
@@ -1977,7 +2115,7 @@ class DatabaseManager:
             error_msg = f"Erro ao exportar resultados: {e}"
             logger.error(error_msg)
             raise ResultsSaveError(error_msg, caminho=output_path) from e
-
+    
     def validate_output(self, output_path):
         """
         Valida a estrutura do arquivo Excel gerado e a formatação monetária.
