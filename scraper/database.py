@@ -945,7 +945,7 @@ class DatabaseManager:
                 SELECT 
                     TRIM(fornecedor) as codigo_fornecedor,
                     TRIM(fornecedor) as descricao_fornecedor,
-                    SUM(COALESCE(valor_originala, 0)) as saldo_financeiro,
+                    SUM(COALESCE(valor_original, 0)) as saldo_financeiro,
                     'Pendente' as status
                 FROM 
                     {self.settings.TABLE_FINANCEIRO}
@@ -1719,17 +1719,17 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
                     ABS(SUM(saldo_financeiro)) as total_financeiro,
                     (
-                        -- Soma dos saldos consolidados (igual ao mostrado na aba Balancete)
+                        -- Soma TODOS os fornecedores contábeis
                         SELECT COALESCE(SUM(saldo_atual), 0)
                         FROM {self.settings.TABLE_MODELO1} 
-                        WHERE descricao_conta IN ('FORNECEDORES NACIONAIS')
+                        WHERE descricao_conta LIKE '%FORNEC%'
                     ) as total_contabil,
                     (
                         ABS(SUM(saldo_financeiro)) -
                         (
                             SELECT COALESCE(SUM(saldo_atual), 0)
                             FROM {self.settings.TABLE_MODELO1} 
-                            WHERE descricao_conta IN ('FORNECEDORES NACIONAIS')
+                            WHERE descricao_conta LIKE '%FORNEC%'
                         )
                     ) as diferenca_geral,
                     SUM(CASE WHEN status = 'Divergente' THEN diferenca ELSE 0 END) as total_divergencia
