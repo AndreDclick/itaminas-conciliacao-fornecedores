@@ -1126,6 +1126,23 @@ class DatabaseManager:
                         ELSE detalhes  -- Mantém os detalhes da investigação para divergências
                     END
             """)
+            # Insere dados de adiantamentos em tabela separada
+            query_resultado_adiantamento = f"""
+                INSERT INTO {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
+                (codigo_fornecedor, descricao_fornecedor, total_financeiro, total_contabil, diferenca, status, detalhes)
+                SELECT 
+                    a.codigo_fornecedor,
+                    a.descricao_fornecedor,
+                    0 as total_financeiro,
+                    SUM(COALESCE(a.saldo_atual,0)) as total_contabil,
+                    SUM(COALESCE(a.saldo_atual,0)) as diferenca,
+                    'Pendente' as status,
+                    'Adiantamento de Fornecedores' as detalhes
+                FROM {self.settings.TABLE_ADIANTAMENTO} a
+                GROUP BY a.codigo_fornecedor, a.descricao_fornecedor
+            """
+            cursor.execute(query_resultado_adiantamento)
+
 
             # NOVO: Processamento específico para adiantamentos
             self._process_adiantamentos()
@@ -1616,13 +1633,11 @@ class DatabaseManager:
 
     def separar_codigo_descricao(self, df, coluna_origem="Fornecedor", col_codigo="Codigo", col_descricao="Descricao"):
         """
-        Separa código e descrição de uma coluna (ex: '000123-EMPRESA XYZ').
+        Versão MELHORADA: Extrai todos os dígitos do início da string para a coluna de código
+        e remove esses dígitos da descrição.
         """
         if coluna_origem in df.columns:
-            # Faz uma cópia para evitar SettingWithCopyWarning
             df = df.copy()
-            
-            # Inicializa as novas colunas
             df[col_codigo] = ""
             df[col_descricao] = ""
             
@@ -1630,32 +1645,32 @@ class DatabaseManager:
                 if pd.notna(valor) and str(valor).strip() != "":
                     valor_str = str(valor).strip()
                     
-                    # Padrão: código-descrição (000123-EMPRESA XYZ)
-                    if "-" in valor_str:
-                        partes = valor_str.split("-", 1)  # Split apenas na primeira ocorrência
-                        if len(partes) == 2:
-                            df.at[idx, col_codigo] = partes[0].strip()
-                            df.at[idx, col_descricao] = partes[1].strip()
-                        else:
-                            # Se tiver múltiplos hífens, junta tudo exceto a primeira parte
-                            df.at[idx, col_codigo] = partes[0].strip()
-                            df.at[idx, col_descricao] = "-".join(partes[1:]).strip()
+                    # REGEX MELHORADA: Pega TODOS os dígitos do início, incluindo possíveis separadores
+                    # Captura: 123, 123-456, 123.456, 123 456, etc.
+                    match = re.match(r'^(\d+[\s\-\.\/]*\d*)', valor_str)
+                    
+                    if match:
+                        codigo = match.group(1).strip()
+                        # Remove qualquer caractere não numérico do código (opcional)
+                        codigo_limpo = re.sub(r'[^\d]', '', codigo)  # Mantém apenas dígitos
+                        # Ou mantenha com os separadores: codigo_limpo = codigo
+                        
+                        df.at[idx, col_codigo] = codigo_limpo
+                        # Remove o código encontrado do início da descrição
+                        descricao = valor_str[len(codigo):].strip()
+                        # Remove hífens, pontos ou espaços extras no início
+                        descricao = re.sub(r'^[\s\-\.\/]+', '', descricao)
+                        df.at[idx, col_descricao] = descricao
                     else:
-                        # Se não tem hífen, tenta separar por espaço
-                        partes = valor_str.split(" ", 1)
-                        if len(partes) == 2 and partes[0].isdigit():
-                            df.at[idx, col_codigo] = partes[0].strip()
-                            df.at[idx, col_descricao] = partes[1].strip()
-                        else:
-                            # Se não consegue separar, coloca tudo na descrição
-                            df.at[idx, col_descricao] = valor_str
-                            df.at[idx, col_codigo] = "N/A"
+                        # Se não tem números no início, coloca vazio no código
+                        df.at[idx, col_codigo] = ""
+                        df.at[idx, col_descricao] = valor_str
+                    
+                    # Log para debug (opcional)
+                    logger.debug(f"'{valor_str}' -> '{df.at[idx, col_codigo]}' / '{df.at[idx, col_descricao]}'")
             
-            logger.info(f"Separação concluída: {len(df)} registros processados")
-            logger.info(f"Exemplo: {df[[coluna_origem, col_codigo, col_descricao]].head().to_string()}")
-        
-        return df
-
+            return df
+    
     def export_to_excel(self, export_type="all"):
         """
         Exporta resultados para arquivo(s) Excel formatado(s) com metadados.
