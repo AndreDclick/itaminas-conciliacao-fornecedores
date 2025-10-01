@@ -732,12 +732,17 @@ class DatabaseManager:
             num_cols = ['saldo_anterior', 'debito', 'credito', 'saldo_atual']
             for col in num_cols:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(
-                        df[col].astype(str)
-                        .str.replace(r'[^\d,-]', '', regex=True)
-                        .str.replace(',', '.'),
-                        errors='coerce'
-                    ).fillna(0)
+                    # Primeiro tenta aplicar a formatação de crédito se necessário
+                    if col == 'credito':
+                        df[col] = df[col].apply(self.formatar_credito)
+                    else:
+                        # Para outras colunas, usa conversão direta
+                        df[col] = pd.to_numeric(
+                            df[col].astype(str)
+                            .str.replace(r'[^\d,-]', '', regex=True)
+                            .str.replace(',', '.'),
+                            errors='coerce'
+                        ).fillna(0)
             
             return df
         except Exception as e:
@@ -748,8 +753,10 @@ class DatabaseManager:
     def formatar_credito(self, valor):
         if pd.isna(valor):
             return None
+        
         valor_str = str(valor).strip()
 
+        # Verifica se é crédito (C) ou débito (D)
         is_credito = valor_str.endswith("C")
         is_debito = valor_str.endswith("D")
 
@@ -757,15 +764,29 @@ class DatabaseManager:
         valor_str = re.sub(r'[^\d,]', '', valor_str)
 
         try:
-            valor_float = float(valor_str.replace('.', '').replace(',', '.'))
-        except:
+            # CORREÇÃO: Remover pontos de milhar ANTES de converter
+            # Se tiver vírgula, assume que é decimal
+            if ',' in valor_str:
+                # Remove pontos de milhar e troca vírgula por ponto
+                valor_str = valor_str.replace('.', '').replace(',', '.')
+            else:
+                # Se não tem vírgula, pode ser que já esteja no formato correto
+                # Mas remove pontos de milhar para segurança
+                valor_str = valor_str.replace('.', '')
+            
+            valor_float = float(valor_str)
+            
+            # Ajusta o sinal baseado no tipo (C ou D)
+            if is_credito:
+                valor_float = -abs(valor_float)  # Crédito é negativo
+            elif is_debito:
+                valor_float = abs(valor_float)   # Débito é positivo
+            
+        except Exception as e:
+            logger.warning(f"Erro ao converter valor '{valor}': {e}")
             valor_float = 0.0
 
-        if is_credito:
-            valor_float = -valor_float
-        # crédito agora é negativo
-
-        return f"R$ {valor_float:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return valor_float  # Retorna o valor numérico, não formatado
 
 
     def _clean_contas_itens_data(self, df):
@@ -810,6 +831,7 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Erro ao limpar dados de Contas x Itens: {e}")
             raise
+
 
     def _clean_adiantamento_data(self, df):
         """
