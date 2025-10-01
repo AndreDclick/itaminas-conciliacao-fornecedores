@@ -584,6 +584,13 @@ class DatabaseManager:
                     sample_data = df[['fornecedor', 'codigo_fornecedor', 'descricao_fornecedor']].head(5)
                     for idx, row in sample_data.iterrows():
                         logger.info(f"  '{row['fornecedor']}' -> '{row['codigo_fornecedor']}' / '{row['descricao_fornecedor']}'")
+            
+            if 'titulo' in df.columns:
+                logger.info("Limpando coluna 'titulo' - removendo letras, mantendo números e hífen")
+                df['titulo'] = df['titulo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+                
+                # Log dos resultados da limpeza
+                logger.info(f"Exemplos de títulos após limpeza: {df['titulo'].head(10).tolist()}")
 
             for date_col in ['data_emissao', 'data_vencimento']:
                 if date_col in df.columns:
@@ -938,7 +945,7 @@ class DatabaseManager:
                 SELECT 
                     TRIM(fornecedor) as codigo_fornecedor,
                     TRIM(fornecedor) as descricao_fornecedor,
-                    SUM(COALESCE(saldo_devedor, 0)) as saldo_financeiro,
+                    SUM(COALESCE(valor_originala, 0)) as saldo_financeiro,
                     'Pendente' as status
                 FROM 
                     {self.settings.TABLE_FINANCEIRO}
@@ -1167,7 +1174,7 @@ class DatabaseManager:
             data_inicial = cal.add_working_days(data_inicial - timedelta(days=1), 1)
             data_final = hoje
             # Retorna em ISO (YYYY-MM-DD) — adequado para BETWEEN no SQLite
-            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/06/2025")
+            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/07/2025")
             #return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
 
         except Exception as e:

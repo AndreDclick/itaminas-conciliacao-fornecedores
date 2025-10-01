@@ -208,9 +208,9 @@ class ProtheusScraper(Utils):
             # Preenche campos adicionais de configuração
             input_campo_grupo = '01'
             input_campo_filial = '0101'
-            time.sleep(1)
+            time.sleep(2)
             input_campo_ambiente = '34'
-            time.sleep(1)
+            time.sleep(2)
             self.locators['campo_grupo'].wait_for(state="visible", timeout=self.settings.TIMEOUT)
             self.locators['campo_grupo'].click()
             self.locators['campo_grupo'].fill(input_campo_grupo)
@@ -256,7 +256,7 @@ class ProtheusScraper(Utils):
                 'error_code': None
             })
 
-            # # 1. Executar Financeiro
+            # 1. Executar Financeiro
             # try:       
             #     financeiro = ExtracaoFinanceiro(self.page)
             #     resultado_financeiro = financeiro.execucao()
