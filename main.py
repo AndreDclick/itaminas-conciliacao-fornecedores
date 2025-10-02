@@ -202,8 +202,8 @@ def send_email(subject, body, summary, attachments=None, email_type="success"):
         subject, 
         recipients, 
         html_content,
-        # [str(logo_path)],  # Imagens embedadas (caminho absoluto)
-        attachments        # Anexos
+        # [str(logo_path)], 
+        attachments       
     )
     
     if success:

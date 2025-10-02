@@ -1174,7 +1174,7 @@ class DatabaseManager:
             data_inicial = cal.add_working_days(data_inicial - timedelta(days=1), 1)
             data_final = hoje
             # Retorna em ISO (YYYY-MM-DD) — adequado para BETWEEN no SQLite
-            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/07/2025")
+            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/06/2025")
             #return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
 
         except Exception as e:
@@ -1717,25 +1717,43 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Conferido' THEN 1 ELSE 0 END) as conciliados_ok,
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
-                    ABS(SUM(saldo_financeiro)) as total_financeiro,
+
+                    -- Total Financeiro SIMPLIFICADO (remove filtro de data problemático)
                     (
-                        -- Soma TODOS os fornecedores contábeis
+                        SELECT COALESCE(SUM(saldo_devedor), 0)
+                        FROM {self.settings.TABLE_FINANCEIRO}
+                        WHERE excluido = 0
+                        AND UPPER(tipo_titulo) IN ('NF', 'FT')
+                    ) as total_financeiro,
+
+                    -- Total Contábil
+                    (
                         SELECT COALESCE(SUM(saldo_atual), 0)
                         FROM {self.settings.TABLE_MODELO1} 
                         WHERE descricao_conta LIKE '%FORNEC%'
+                        AND conta_contabil LIKE '2.01.02.01.0001%'
                     ) as total_contabil,
+
+                    -- Diferença
                     (
-                        ABS(SUM(saldo_financeiro)) -
-                        (
-                            SELECT COALESCE(SUM(saldo_atual), 0)
-                            FROM {self.settings.TABLE_MODELO1} 
-                            WHERE descricao_conta LIKE '%FORNEC%'
-                        )
+                        (SELECT COALESCE(SUM(saldo_devedor), 0)
+                        FROM {self.settings.TABLE_FINANCEIRO}
+                        WHERE excluido = 0
+                        AND UPPER(tipo_titulo) IN ('NF', 'FT'))
+                        -
+                        (SELECT COALESCE(SUM(saldo_atual), 0)
+                        FROM {self.settings.TABLE_MODELO1} 
+                        WHERE descricao_conta LIKE '%FORNEC%'
+                        AND conta_contabil LIKE '2.01.02.01.0001%')
                     ) as diferenca_geral,
+
+                    -- Total de divergência
                     SUM(CASE WHEN status = 'Divergente' THEN diferenca ELSE 0 END) as total_divergencia
+
                 FROM 
                     {self.settings.TABLE_RESULTADO}
             """
+
 
             stats = pd.read_sql(query_stats, self.conn).iloc[0]
 
@@ -1764,7 +1782,7 @@ class DatabaseManager:
                         {self.settings.TABLE_FINANCEIRO}
                     WHERE 
                         excluido = 0
-                        AND UPPER(tipo_titulo) NOT IN ('NDF', 'PA', 'BOL', 'EMP', 'TX', 'INS', 'ISS', 'TXA', 'IRF')
+                        AND UPPER(tipo_titulo) IN ('NF','FT')
                     ORDER BY 
                         fornecedor, titulo, parcela
                 """
@@ -2169,6 +2187,8 @@ class DatabaseManager:
             error_msg = f"Erro ao exportar resultados: {e}"
             logger.error(error_msg)
             raise ResultsSaveError(error_msg, caminho=output_path) from e
+        
+    
 
     def validate_output(self, output_path, export_type="all"):
         """
