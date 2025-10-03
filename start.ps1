@@ -2,7 +2,7 @@ try {
     [Console]::Out.Flush()
 
     $pythonPath = "C:\Users\rpa.dclick\Documents\projetos\itaminas-conciliacao-fornecedores\venv\Scripts\python.exe"
-    $projectPath = "C:\Users\rpa.dclick\Documents\projetos\itaminas-conciliacao-fornecedores\main.py"
+    $projectPath = "C:\Users\rpa.dclick\Documents\projetos\itaminas-conciliacao-fornecedores"
 
     cd $projectPath
 
