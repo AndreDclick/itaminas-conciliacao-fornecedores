@@ -62,11 +62,7 @@ class ProtheusScraper(Utils):
         Configura o navegador Edge com as opções especificadas.
         """
         try:
-            self.browser = self.playwright.chromium.launch(
-                headless=self.settings.HEADLESS,
-                args=["--start-maximized"],
-                channel="msedge"
-            )
+            self.browser = self.playwright.chromium.launch(channel="msedge", headless=False)
         except Exception as e:
             error_msg = "Falha ao configurar o navegador"
             logger.error(f"{error_msg}: {e}")

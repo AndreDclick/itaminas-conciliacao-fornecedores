@@ -131,17 +131,16 @@ class Settings:
     
     # Planilha Financeira (finr150.xlsx)
     COLUNAS_FINANCEIRO = {
-    'fornecedor': 'Codigo-Nome do Fornecedor',
-    'titulo': 'Prf-Numero Parcela',  
-    'tipo_titulo': 'Tp',
-    'data_emissao': 'Data de Emissao',
-    'data_vencimento': 'Data de Vencto',
-    'valor_original': 'Valor Original',
-    'saldo_devedor': 'Tit Vencidos Valor nominal',  # J - Títulos Vencidos
-    'titulos_vencer': 'Titulos a vencer Valor nominal',  # K - Títulos a Vencer (NOVO)
-    'situacao': 'Natureza',
-    'conta_contabil': 'Natureza',
-    'centro_custo': 'Porta- dor'
+        'Codigo-Nome do Fornecedor': 'fornecedor',
+        'Prf-Numero Parcela': 'titulo', 
+        'Tp': 'tipo_titulo',
+        'Data de Emissao': 'data_emissao',
+        'Data de Vencto': 'data_vencimento',
+        'Valor Original': 'valor_original',
+        'Tit Vencidos Valor nominal': 'tit_vencidos_valor_nominal',
+        'Titulos a vencer Valor nominal': 'titulos_a_vencer_valor_nominal',
+        'Natureza': 'situacao',
+        'Porta- dor': 'centro_custo'
     }
 
     # Planilha Modelo 1 (ctbr040.xlsx)

@@ -88,7 +88,8 @@ class DatabaseManager:
                     data_emissao TEXT DEFAULT NULL,
                     data_vencimento TEXT DEFAULT NULL,
                     valor_original REAL DEFAULT 0,
-                    saldo_devedor REAL DEFAULT 0,
+                    tit_vencidos_valor_nominal REAL DEFAULT 0,  -- NOVA COLUNA
+                    titulos_a_vencer_valor_nominal REAL DEFAULT 0,  -- NOVA COLUNA
                     situacao TEXT,
                     conta_contabil TEXT,
                     centro_custo TEXT,
@@ -191,6 +192,8 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_}")
             
             # Garante que colunas importantes existam
+            ensure_column(self.settings.TABLE_FINANCEIRO, 'tit_vencidos_valor_nominal', 'REAL')
+            ensure_column(self.settings.TABLE_FINANCEIRO, 'titulos_a_vencer_valor_nominal', 'REAL')
             ensure_column(self.settings.TABLE_CONTAS_ITENS, 'codigo_fornecedor', 'TEXT')
             ensure_column(self.settings.TABLE_CONTAS_ITENS, 'descricao_fornecedor', 'TEXT')
             ensure_column(self.settings.TABLE_MODELO1, 'codigo_fornecedor', 'TEXT')
@@ -288,13 +291,6 @@ class DatabaseManager:
     def import_from_excel(self, file_path, table_name):
         """
         Importa dados de arquivo Excel/TXT/XML para a tabela especificada.
-        
-        Args:
-            file_path: Caminho do arquivo a ser importado
-            table_name: Nome da tabela destino
-            
-        Returns:
-            bool: True se importação foi bem sucedida, False caso contrário
         """
         try:
             filename = Path(file_path).stem.lower()
@@ -373,6 +369,7 @@ class DatabaseManager:
                 remaining_missing = [col for col in expected_columns if col not in df.columns]
 
                 if remaining_missing:
+                    # 🔥 TRECHO CORRIGIDO: Tratamento específico para colunas ausentes
                     # Tenta criar colunas ausentes com valores padrão
                     if 'parcela' in remaining_missing and 'titulo' in df.columns:
                         df['parcela'] = df['titulo'].astype(str).str.extract(r'(\d+)$').fillna('1')
@@ -383,6 +380,19 @@ class DatabaseManager:
                         df['conta_contabil'] = 'CONTA_NAO_IDENTIFICADA'
                         logger.warning("Coluna 'conta_contabil' preenchida com valor padrão para arquivo financeiro")
                         remaining_missing.remove('conta_contabil')
+
+                    # 🔥 NOVO: Para saldo_devedor, calculamos a partir das novas colunas J e K
+                    if 'saldo_devedor' in remaining_missing:
+                        # Verifica se temos as colunas J e K para calcular o saldo_devedor
+                        if 'tit_vencidos_valor_nominal' in df.columns and 'titulos_a_vencer_valor_nominal' in df.columns:
+                            df['saldo_devedor'] = df['tit_vencidos_valor_nominal'].fillna(0) + df['titulos_a_vencer_valor_nominal'].fillna(0)
+                            logger.warning("Coluna 'saldo_devedor' calculada a partir de tit_vencidos_valor_nominal + titulos_a_vencer_valor_nominal")
+                            remaining_missing.remove('saldo_devedor')
+                        else:
+                            # Se não temos J e K, usa valor_original como fallback
+                            df['saldo_devedor'] = df.get('valor_original', 0)
+                            logger.warning("Coluna 'saldo_devedor' preenchida com valor_original como fallback")
+                            remaining_missing.remove('saldo_devedor')
 
                     if remaining_missing:
                         error_msg = f"Colunas obrigatórias ausentes após tratamento: {remaining_missing}"
@@ -482,21 +492,13 @@ class DatabaseManager:
     def get_expected_columns(self, table_name):
         """
         Retorna lista de colunas esperadas para cada tipo de tabela.
-        
-        Args:
-            table_name: Nome da tabela
-            
-        Returns:
-            list: Lista de colunas esperadas
-            
-        Raises:
-            ValueError: Se a tabela for desconhecida
         """
         if table_name == self.settings.TABLE_FINANCEIRO:
             return [
                 'fornecedor', 'titulo', 'parcela', 'tipo_titulo',
                 'data_emissao', 'data_vencimento', 'valor_original',
-                'saldo_devedor', 'situacao', 'conta_contabil', 'centro_custo'
+                'tit_vencidos_valor_nominal', 'titulos_a_vencer_valor_nominal',  # NOVAS COLUNAS
+                'situacao', 'conta_contabil', 'centro_custo'
             ]
         elif table_name == self.settings.TABLE_MODELO1:
             return [
@@ -517,9 +519,9 @@ class DatabaseManager:
             ]
         else:
             error_msg = f"Tabela desconhecida: {table_name}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
     def _clean_dataframe(self, df, sheet_type):
         """
         Executa limpeza geral do DataFrame baseado no tipo de planilha.
@@ -1502,14 +1504,14 @@ class DatabaseManager:
             if 'total_financeiro' not in columns:
                 self._recreate_adiantamento_table()
             
-            # Calcula totais financeiros de adiantamentos (NDF e PA)
+            # 🔥 CORREÇÃO: Calcula totais financeiros de adiantamentos usando as NOVAS colunas
             query_adiantamento_financeiro = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 (codigo_fornecedor, descricao_fornecedor, total_financeiro, status)
                 SELECT 
                     TRIM(fornecedor) as codigo_fornecedor,
                     TRIM(fornecedor) as descricao_fornecedor,
-                    SUM(COALESCE(saldo_devedor, 0)) as total_financeiro, 
+                    SUM(COALESCE(tit_vencidos_valor_nominal, 0) + COALESCE(titulos_a_vencer_valor_nominal, 0)) as total_financeiro, 
                     'Pendente' as status
                 FROM 
                     {self.settings.TABLE_FINANCEIRO}
@@ -1521,27 +1523,7 @@ class DatabaseManager:
             """
             cursor.execute(query_adiantamento_financeiro)
             
-            # Soma de Títulos Vencidos + Títulos a Vencer (J + K)
-            query_soma_valores = f"""
-                UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
-                SET total_financeiro = (
-                    SELECT COALESCE(SUM(
-                        COALESCE(saldo_devedor, 0) + COALESCE("Titulos a vencer Valor nominal", 0)  
-                    ), 0)
-                    FROM {self.settings.TABLE_FINANCEIRO} f
-                    WHERE f.fornecedor = {self.settings.TABLE_RESULTADO_ADIANTAMENTO}.codigo_fornecedor
-                    AND f.excluido = 0
-                    AND UPPER(f.tipo_titulo) IN ('NDF', 'PA')
-                )
-                WHERE codigo_fornecedor IN (
-                    SELECT DISTINCT fornecedor 
-                    FROM {self.settings.TABLE_FINANCEIRO} 
-                    WHERE UPPER(tipo_titulo) IN ('NDF', 'PA')
-                )
-            """
-            cursor.execute(query_soma_valores)
-            
-            # Atualiza com dados contábeis de adiantamento
+            # 🔥 CORREÇÃO: Atualiza com dados contábeis de adiantamento
             query_contabil_update = f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 SET 
@@ -1588,7 +1570,7 @@ class DatabaseManager:
             """
             cursor.execute(query_contabeis_sem_match)
             
-            # Calcula diferenças e define status
+            # 🔥 CORREÇÃO: Calcula diferenças e define status
             query_diferenca = f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 SET 
@@ -1718,12 +1700,13 @@ class DatabaseManager:
                     SUM(CASE WHEN status = 'Divergente' THEN 1 ELSE 0 END) as divergentes,
                     SUM(CASE WHEN status = 'Pendente' THEN 1 ELSE 0 END) as pendentes,
 
-                    -- Total Financeiro SIMPLIFICADO (remove filtro de data problemático)
+                    -- Total Financeiro CORRETO: Soma de (J + K) apenas para NF/FT
                     (
-                        SELECT COALESCE(SUM(saldo_devedor), 0)
+                        SELECT ABS(COALESCE(SUM(COALESCE(tit_vencidos_valor_nominal,0) 
+                                                    + COALESCE(titulos_a_vencer_valor_nominal,0)), 0))
                         FROM {self.settings.TABLE_FINANCEIRO}
                         WHERE excluido = 0
-                        AND UPPER(tipo_titulo) IN ('NF', 'FT')
+                        AND UPPER(tipo_titulo) IN ('NF','FT')
                     ) as total_financeiro,
 
                     -- Total Contábil
@@ -1734,12 +1717,13 @@ class DatabaseManager:
                         AND conta_contabil LIKE '2.01.02.01.0001%'
                     ) as total_contabil,
 
-                    -- Diferença
+                    -- Diferença CORRETA
                     (
-                        (SELECT COALESCE(SUM(saldo_devedor), 0)
+                        (SELECT ABS(COALESCE(SUM(COALESCE(tit_vencidos_valor_nominal,0) 
+                                                    + COALESCE(titulos_a_vencer_valor_nominal,0)), 0))
                         FROM {self.settings.TABLE_FINANCEIRO}
                         WHERE excluido = 0
-                        AND UPPER(tipo_titulo) IN ('NF', 'FT'))
+                        AND UPPER(tipo_titulo) IN ('NF','FT'))
                         -
                         (SELECT COALESCE(SUM(saldo_atual), 0)
                         FROM {self.settings.TABLE_MODELO1} 
@@ -1753,7 +1737,6 @@ class DatabaseManager:
                 FROM 
                     {self.settings.TABLE_RESULTADO}
             """
-
 
             stats = pd.read_sql(query_stats, self.conn).iloc[0]
 
@@ -1774,7 +1757,9 @@ class DatabaseManager:
                             ELSE data_vencimento 
                         END as "Data Vencimento",
                         valor_original as "Valor Original",
-                        saldo_devedor as "Saldo Devedor",
+                        tit_vencidos_valor_nominal as "Títulos Vencidos",  -- NOVA COLUNA J
+                        titulos_a_vencer_valor_nominal as "Títulos a Vencer",  -- NOVA COLUNA K
+                        (COALESCE(tit_vencidos_valor_nominal, 0) + COALESCE(titulos_a_vencer_valor_nominal, 0)) as "Saldo Devedor",  -- CALCULADO
                         situacao as "Situação",
                         conta_contabil as "Conta Contábil",
                         centro_custo as "Centro Custo"
@@ -1819,7 +1804,9 @@ class DatabaseManager:
                             ELSE data_vencimento 
                         END as "Data Vencimento",
                         valor_original as "Valor Original",
-                        saldo_devedor as "Saldo Devedor",
+                        tit_vencidos_valor_nominal as "Títulos Vencidos",
+                        titulos_a_vencer_valor_nominal as "Títulos a Vencer",
+                        (COALESCE(tit_vencidos_valor_nominal, 0) + COALESCE(titulos_a_vencer_valor_nominal, 0)) as "Saldo Devedor",  -- CALCULADO
                         situacao as "Situação",
                         conta_contabil as "Conta Contábil",
                         centro_custo as "Centro Custo"
