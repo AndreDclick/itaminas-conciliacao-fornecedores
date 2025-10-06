@@ -1838,20 +1838,25 @@ class DatabaseManager:
             if export_type in ["all", "fornecedores"]:
                 query_contabil = f"""
                     SELECT 
-                        conta_contabil as "Codigo",
-                        descricao_conta as "Descricao",
-                        codigo_fornecedor as "Codigo",
-                        saldo_anterior as "Saldo anterior",
-                        debito as "Debito", 
-                        credito as "Credito",
-                        saldo_atual as "Saldo atual"
+                        conta_contabil as "Conta Contábil",
+                        descricao_conta as "Descrição",
+                        codigo_fornecedor as "Código Fornecedor", 
+                        descricao_fornecedor as "Descrição Fornecedor",
+                        saldo_anterior as "Saldo Anterior",
+                        debito as "Débito",
+                        credito as "Crédito", 
+                        saldo_atual as "Saldo Atual",
+                        tipo_fornecedor as "Tipo"
                     FROM 
                         {self.settings.TABLE_MODELO1}
                     WHERE 
                         (descricao_conta LIKE '%FORNEC%' OR tipo_fornecedor LIKE '%FORNEC%')
                         AND conta_contabil LIKE '2.01.02.01.0001%'
+                        AND (debito != 0 OR credito != 0 OR saldo_atual != 0)  -- Só mostra movimentos com valores
                     ORDER BY 
-                        conta_contabil, codigo_fornecedor
+                        ABS(saldo_atual) DESC,  -- Maiores saldos primeiro
+                        conta_contabil, 
+                        codigo_fornecedor
                 """
                 df_contabil = pd.read_sql(query_contabil, self.conn)
 
@@ -1908,6 +1913,11 @@ class DatabaseManager:
                         saldo_atual as "Saldo Atual"
                     FROM 
                         {self.settings.TABLE_CONTAS_ITENS}
+                    WHERE 
+                        -- FILTRO: Remove linhas vazias/inválidas
+                        (descricao_fornecedor IS NOT NULL AND descricao_fornecedor != '')
+                        AND (saldo_anterior IS NOT NULL AND saldo_anterior != 0)
+                        AND (saldo_atual IS NOT NULL AND saldo_atual != 0)
                     ORDER BY 
                         conta_contabil, codigo_fornecedor
                 """
