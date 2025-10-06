@@ -1884,6 +1884,11 @@ class DatabaseManager:
                         saldo_atual as "Saldo Atual"
                     FROM 
                         {self.settings.TABLE_ADIANTAMENTO}
+                    WHERE 
+                        -- FILTRO: Remove linhas vazias/inválidas (MESMO FILTRO DA CONTAS X ITENS)
+                        (descricao_fornecedor IS NOT NULL AND descricao_fornecedor != '')
+                        AND (saldo_anterior IS NOT NULL AND saldo_anterior != 0)
+                        AND (saldo_atual IS NOT NULL AND saldo_atual != 0)
                     ORDER BY 
                         conta_contabil, codigo_fornecedor
                 """
