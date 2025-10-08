@@ -32,3 +32,4 @@ tzdata==2025.2
 urllib3==2.5.0
 workalendar==17.0.0
 xlrd==2.0.2
+pyinstaller

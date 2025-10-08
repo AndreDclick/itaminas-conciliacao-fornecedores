@@ -35,9 +35,22 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import time
+
+import traceback
+import sys
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv()
 
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    print("=== ERRO NÃO TRATADO ===")
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+    print("========================")
+
+sys.excepthook = handle_exception
 
 def send_email_gmail(host, port, from_addr, password, subject, to_addrs, 
                     html_content, embedded_images=None, attachments=None):

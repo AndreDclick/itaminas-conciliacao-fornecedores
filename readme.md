@@ -100,3 +100,12 @@ Processamento e cruzamento de dados
 Geração de planilha consolidada
 
 Envio de e-mail com resultados
+
+
+GERANDO EXE.
+
+build.bat
+
+EXECUTANDO DIST 
+cd C:\Users\dev\OneDrive\Documentos\Repositórios\itaminas-conciliacao-fornecedores\dist
+itaminas-conciliacao.exe
