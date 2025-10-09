@@ -46,9 +46,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
     
-    print("=== ERRO NÃO TRATADO ===")
     traceback.print_exception(exc_type, exc_value, exc_traceback)
-    print("========================")
 
 sys.excepthook = handle_exception
 
@@ -129,6 +127,95 @@ def send_email_gmail(host, port, from_addr, password, subject, to_addrs,
         print(f"Erro ao enviar email: {e}")
         return False
 
+def send_success_email(completion_time, processed_count, error_count, report_path=None):
+    """
+    Envia e-mail de sucesso anexando as planilhas finais de conciliação.
+    Tenta primeiro Office365 (via commons.py), depois Gmail (fallback).
+    """
+    settings = Settings()
+
+    subject = "[SUCESSO] BOT - Conciliação de Fornecedores Itaminas"
+    body = (
+        "O processo de conciliação de fornecedores foi realizado com sucesso.\n"
+        "Todos os detalhes do processamento estão no log em anexo."
+    )
+
+    summary = [
+        f"Status: Concluído com sucesso",
+        f"Data/Hora de conclusão: {completion_time}",
+        f"Total de registros processados: {processed_count}",
+        f"Total de exceções identificadas: {error_count}",
+    ]
+
+    if report_path:
+        summary.append(f"Localização do relatório final: {report_path}")
+
+    # ------------------ MONTAGEM DOS ANEXOS ------------------
+    attachments = []
+
+    if report_path:
+        attachments.append(report_path)
+
+    for f in settings.RESULTS_DIR.glob("CONCILIACAO*.xlsx"):
+        attachments.append(str(f))
+
+    log_path = settings.LOGS_DIR / f"conciliacao_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    if log_path.exists():
+        attachments.append(str(log_path))
+
+    # ------------------ RENDERIZAÇÃO DO TEMPLATE ------------------
+    template_path = settings.BASE_DIR / settings.SMTP["template"]
+    summary_html = "<br/>".join(summary)
+
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+            html_content = html_content.replace("{0}", subject)
+            html_content = html_content.replace("{1}", body.split("\n")[0])
+            html_content = html_content.replace("{2}", body.split("\n")[1])
+            html_content = html_content.replace("{3}", summary_html)
+    except FileNotFoundError:
+        html_content = (
+            f"<html><body><h3>{subject}</h3><p>{body}</p>"
+            f"<pre>{chr(10).join(summary)}</pre></body></html>"
+        )
+
+    # ------------------ ENVIO PELO OFFICE 365 ------------------
+    success = False
+    # try:
+    #     sendemail_office_365(
+    #         settings.SMTP["host"],
+    #         settings.SMTP["port"],
+    #         settings.SMTP["from"],  
+    #         settings.SMTP["password"],
+    #         subject,
+    #         settings.SMTP["from"],
+    #         ",".join(settings.EMAILS["success"]),
+    #         html_content,
+    #         [],
+    #         attachments,
+    #     )
+    #     logging.info("✅ E-mail enviado com sucesso via Office 365")
+    #     success = True
+    # except Exception as e:
+    #     logging.warning(f"Falha no envio via Office 365: {e}")
+
+    # ------------------ FALLBACK PELO GMAIL ------------------
+    if not success:
+        try:
+            send_email_gmail(
+                settings.SMTP["host"],
+                settings.SMTP["port"],
+                settings.SMTP["from"],
+                settings.SMTP["password"],
+                subject,
+                settings.EMAILS["success"],
+                html_content,
+                attachments=attachments,
+            )
+            logging.info("✅ E-mail enviado com sucesso via Gmail (fallback)")
+        except Exception as e:
+            logging.error(f"❌ Falha total no envio de e-mail: {e}")
 
 def send_email(subject, body, summary, attachments=None, email_type="success"):
     """
@@ -223,54 +310,6 @@ def send_email(subject, body, summary, attachments=None, email_type="success"):
         logging.info("Email enviado com sucesso")
     else:
         logging.error("Falha ao enviar email")
-
-def send_success_email(completion_time, processed_count, error_count, report_path=None):
-    """
-    Envia email de sucesso conforme especificado na documentação
-    
-    Args:
-        completion_time (str): Data/hora de conclusão do processo
-        processed_count (int): Total de registros processados
-        error_count (int): Total de exceções identificadas
-        report_path (str, optional): Caminho para o relatório final
-    """
-    # Configurar assunto do email
-    subject = "[SUCESSO] BOT - Conciliação de Fornecedores Itaminas"
-    
-    # Corpo principal do email (com placeholders {1} e {2})
-    body = "O processo de conciliação de fornecedores foi realizado com sucesso.\nTodos os detalhes do processamento estão no log em anexo."
-    
-    # Criar resumo da execução
-    summary = [
-        f"Status: Concluído com sucesso",
-        f"Data/Hora de conclusão: {completion_time}",
-        f"Total de registros processados: {processed_count}",
-        f"Total de exceções identificadas: {error_count}",
-    ]
-    
-    # Adicionar localização do relatório se disponível
-    if report_path:
-        summary.append(f"Localização do relatório final: {report_path}")
-    
-    # Preparar lista de anexos
-    attachments = []
-    if report_path:
-        attachments.append(report_path)
-    
-    # Configurações
-    settings = Settings()
-    
-    # Adicionar planilhas geradas como anexos
-    planilha_financeiro = settings.DATA_DIR / settings.PLS_FINANCEIRO
-    planilha_modelo = settings.DATA_DIR / settings.PLS_MODELO_1
-    
-    if planilha_financeiro.exists():
-        attachments.append(str(planilha_financeiro))
-    if planilha_modelo.exists():
-        attachments.append(str(planilha_modelo))
-    
-    # Enviar email de sucesso
-    send_email(subject, body, summary, attachments, "success")
 
 def send_error_email(error_time, error_description, affected_count=None, 
                     error_records=None, suggested_action=None):
