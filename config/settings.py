@@ -26,14 +26,14 @@ def setup_environment():
         # O .env está no mesmo diretório do executável, não no _MEIPASS
         base_path = Path(sys.executable).parent
         env_path = base_path / '.env'
-        print(f"🔧 Modo: Executável PyInstaller")
-        print(f"📁 Diretório do executável: {base_path}")
+        print(f" Modo: Executável PyInstaller")
+        print(f" Diretório do executável: {base_path}")
     else:
         # Se está rodando como script
         base_path = Path(__file__).resolve().parent.parent
         env_path = base_path / '.env'
-        print(f"🔧 Modo: Desenvolvimento")
-        print(f"📁 Diretório do projeto: {base_path}")
+        print(f" Modo: Desenvolvimento")
+        print(f" Diretório do projeto: {base_path}")
     
     # Carregar .env
     if env_path.exists():
@@ -49,7 +49,7 @@ def setup_environment():
         return True
     else:
         print(f"❌ .env NÃO encontrado em: {env_path}")
-        print(f"📁 Conteúdo do diretório:")
+        print(f" Conteúdo do diretório:")
         try:
             for item in base_path.iterdir():
                 print(f"   - {item.name}")
@@ -237,9 +237,7 @@ class Settings:
         
         # Validar variáveis críticas (mas não falhar imediatamente)
         self._validate_required_vars()
-        
-        # Log das configurações carregadas
-        self._log_loaded_settings()
+
 
     def _create_directories(self):
         """Cria todos os diretórios necessários para o sistema."""
@@ -269,20 +267,6 @@ class Settings:
             print(f"❌ {error_msg}")
             # Não levanta exceção imediatamente, apenas registra o erro
             # raise ValueError(error_msg)
-
-    def _log_loaded_settings(self):
-        """Registra as configurações carregadas (sem dados sensíveis)."""
-        print("=" * 50)
-        print("CONFIGURAÇÕES CARREGADAS:")
-        print(f"✅ USUARIO: {'***' if self.USUARIO else '❌ NÃO CARREGADO'}")
-        print(f"✅ SENHA: {'***' if self.SENHA else '❌ NÃO CARREGADO'}")
-        print(f"✅ BASE_URL: {self.BASE_URL if self.BASE_URL else '❌ NÃO CARREGADO'}")
-        print(f"✅ CAMINHO_PLS: {self.CAMINHO_PLS if self.CAMINHO_PLS else '❌ NÃO CARREGADO'}")
-        print(f"✅ PLANILHA_FINANCEIRO: {self.PLS_FINANCEIRO if self.PLS_FINANCEIRO else '❌ NÃO CARREGADO'}")
-        print(f"✅ PLANILHA_MODELO_1: {self.PLS_MODELO_1 if self.PLS_MODELO_1 else '❌ NÃO CARREGADO'}")
-        print(f"✅ DATA_BASE: {self.DATA_BASE}")
-        print(f"✅ HEADLESS: {self.HEADLESS}")
-        print("=" * 50)
 
 # Instância global para importação
 try:
