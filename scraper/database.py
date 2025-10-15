@@ -19,6 +19,7 @@ from openpyxl.utils import get_column_letter
 from difflib import get_close_matches
 from workalendar.america import Brazil
 from datetime import datetime, timedelta
+import calendar
 import locale
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -1165,39 +1166,54 @@ class DatabaseManager:
             logger.error(error_msg, exc_info=True)
             self.conn.rollback()  # Reverte em caso de erro
             raise ExcecaoNaoMapeadaError(error_msg) from e
-    
 
-    
-    def _get_datas_referencia(self):
-        try:
-            cal = Brazil()
-            hoje = datetime.now().date()
-            data_inicial = hoje.replace(day=1)
-            data_inicial = cal.add_working_days(data_inicial - timedelta(days=1), 1)
-            data_final = hoje
-            # Retorna em ISO (YYYY-MM-DD) — adequado para BETWEEN no SQLite
-            return data_inicial.strftime("01/05/2025"), data_final.strftime("01/06/2025")
-            #return data_inicial.strftime("%d/%m/%Y"), data_final.strftime("%d/%m/%Y")
-
-        except Exception as e:
-            error_msg = f"Erro ao obter datas de referência: {e}"
-            logger.error(error_msg)
-            raise ExcecaoNaoMapeadaError(error_msg) from e
-
-
-    def _ultimo_dia_mes(self, date):
+    def _get_datas_referencia(self, data_referencia=None):
         """
-        Retorna o último dia do mês da data fornecida.
+        Calcula as datas inicial e final para o relatório Contas X Itens
+        conforme as regras especificadas.
+        """
+        if data_referencia is None:
+            data_referencia = datetime.now()
         
-        Args:
-            date: Data para calcular o último dia do mês
+        dia = data_referencia.day
+        mes = data_referencia.month
+        ano = data_referencia.year
+        
+        # Verifica se é o último dia do mês
+        ultimo_dia_mes = calendar.monthrange(ano, mes)[1]
+        eh_ultimo_dia = dia == ultimo_dia_mes
+        
+        # INICIALIZA AS VARIÁVEIS COM VALORES PADRÃO
+        data_inicial = data_referencia  # valor padrão
+        data_final = data_referencia    # valor padrão
+        
+        if eh_ultimo_dia:
+            # Regra para último dia do mês
+            # Data Inicial: primeiro dia do mês anterior
+            if mes == 1:
+                data_inicial = datetime(ano - 1, 12, 1)
+            else:
+                data_inicial = datetime(ano, mes - 1, 1)
             
-        Returns:
-            datetime: Último dia do mês
-        """
-        next_month = date.replace(day=28) + timedelta(days=4)
-        return next_month - timedelta(days=next_month.day)
-
+            # Data Final: último dia do mês anterior
+            if mes == 1:
+                ultimo_dia_anterior = calendar.monthrange(ano - 1, 12)[1]
+                data_final = datetime(ano - 1, 12, ultimo_dia_anterior)
+            else:
+                ultimo_dia_anterior = calendar.monthrange(ano, mes - 1)[1]
+                data_final = datetime(ano, mes - 1, ultimo_dia_anterior)
+        else:
+            # SE NÃO FOR ÚLTIMO DIA DO MÊS, USA DATAS PADRÃO
+            # Por exemplo: primeiro dia do mês atual até hoje
+            data_inicial = datetime(ano, mes, 1)
+            data_final = data_referencia
+        
+        # Formata as datas
+        data_inicial_str = data_inicial.strftime('%d/%m/%Y')
+        data_final_str = data_final.strftime('%d/%m/%Y')
+        
+        return data_inicial_str, data_final_str
+    
     def validate_data_consistency(self):
         try:
             cursor = self.conn.cursor()
@@ -1667,12 +1683,16 @@ class DatabaseManager:
         Args:
             export_type: Tipo de exportação - "all", "fornecedores", "adiantamentos"
         """
-        data_inicial_iso, data_final_iso = self._get_datas_referencia()
+        data_inicial_str, data_final_str = self._get_datas_referencia()
+    
         try:
-            data_inicial = datetime.strptime(data_inicial_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
-            data_final = datetime.strptime(data_final_iso, '%Y-%m-%d').strftime('%d/%m/%Y')
+            # Converte de DD/MM/YYYY para datetime e depois para o formato desejado
+            data_inicial = datetime.strptime(data_inicial_str, '%d/%m/%Y').strftime('%d/%m/%Y')
+            data_final = datetime.strptime(data_final_str, '%d/%m/%Y').strftime('%d/%m/%Y')
         except Exception:
-            data_inicial, data_final = data_inicial_iso, data_final_iso
+            # Se já estiverem no formato correto ou houver erro, usa diretamente
+            data_inicial, data_final = data_inicial_str, data_final_str
+    
 
         # Define os caminhos dos arquivos
         base_filename = f"CONCILIACAO_{data_inicial.replace('/', '-')}_a_{data_final.replace('/', '-')}"

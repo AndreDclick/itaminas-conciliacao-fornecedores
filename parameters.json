@@ -12,18 +12,18 @@
 
         "da_data_contabil": "01/01/2000",
         
-        "ate_a_data_contabil": "01/06/2025",
-        "_comment_ate_a_data_contabil": "Para usar o parâmetro dinâmico, use: {{ultimo_dia_mes_anterior}}",
+        "ate_a_data_contabil": "{{ultimo_dia_mes_anterior}}",
+        "_comment_ate_a_data_contabil": "Para usar o parâmetro dinâmico, use: {{datas_contas_itens.final}}",
 
         "data_base": "{{obter_ultimo_dia_ano_passado}}",
         "_comment_data_base": "Para usar o parâmetro dinâmico, use: {{obter_ultimo_dia_ano_passado}}"
     },
 
     "Modelo_1": {
-        "data_inicial": "01/05/2025",
+        "data_inicial": "{{primeiro_e_ultimo_dia.inicial}}",
         "_comment_data_inicial": "Para usar o parâmetro dinâmico, use: {{primeiro_e_ultimo_dia.inicial}}",
         
-        "data_final": "01/06/2025",
+        "data_final": "{{primeiro_e_ultimo_dia.final}}",
         "_comment_data_final": "Para usar o parâmetro dinâmico, use: {{primeiro_e_ultimo_dia.final}}",
         
         "conta_inicial": "",
@@ -39,10 +39,10 @@
     },
     
     "Contas_X_Itens": {
-        "data_inicial": "01/05/2025",
+        "data_inicial": "{{primeiro_e_ultimo_dia.inicial}}",
         "_comment_data_inicial": "Para usar o parâmetro dinâmico, use: {{primeiro_e_ultimo_dia.inicial}}",
         
-        "data_final": "01/06/2025",
+        "data_final": "{{primeiro_e_ultimo_dia.final}}",
         "_comment_data_final": "Para usar o parâmetro dinâmico, use: {{primeiro_e_ultimo_dia.final}}",
         
         "contabil_inicial": "",

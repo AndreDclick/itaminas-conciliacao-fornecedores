@@ -172,7 +172,8 @@ class ProtheusScraper(Utils):
         try:
             logger.info(f"Navegando para: Protheus")
             self.page.goto(self.settings.BASE_URL)
-            self.page.get_by_role("group", name="Ambiente no servidor").get_by_role("combobox").select_option("CEOS62_DEV")
+            self.page.get_by_role("group", name="Ambiente no servidor").get_by_role("combobox").select_option("CEOS62_PROD")
+            time.sleep(1)
             # Clica no botão OK se estiver visível
             if self.locators['botao_ok'].is_visible():
                 self.locators['botao_ok'].click()
@@ -206,24 +207,22 @@ class ProtheusScraper(Utils):
             
             # Preenche campos adicionais de configuração
             input_campo_grupo = '01'
-            input_campo_filial = '0101'
-            time.sleep(2)
+            input_campo_filial = '0101'            
             input_campo_ambiente = '34'
-            time.sleep(2)
             self.locators['campo_grupo'].wait_for(state="visible", timeout=self.settings.TIMEOUT)
             self.locators['campo_grupo'].click()
             self.locators['campo_grupo'].fill(input_campo_grupo)
             self.locators['campo_filial'].click()
             self.locators['campo_filial'].fill(input_campo_filial)
             self.locators['campo_ambiente'].click()
+            time.sleep(2)
             self.locators['campo_ambiente'].fill(input_campo_ambiente)
+            time.sleep(2)
             self.locators['botao_entrar'].click()
             
             # Fecha popups se existirem
+            time.sleep(1)
             self._fechar_popup_se_existir()
-            time.sleep(3)
-            self._fechar_popup_se_existir()
-            time.sleep(3)
             logger.info("Login realizado com sucesso")
             
         except PlaywrightTimeoutError as e:

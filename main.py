@@ -326,50 +326,6 @@ def send_error_email(error_time, error_description, affected_count=None,
     # Configurar assunto do email
     subject = "[FALHA] BOT - Conciliação de Fornecedores Itaminas"
     
-    # Corpo principal do email (com placeholders {1} e {2})
-    body = "Falha na execução do processo de conciliação de fornecedores.\nVerifique os logs em anexo para mais detalhes."
-    
-    # Criar resumo do erro
-    summary = [
-        f"Status: Falha na execução",
-        f"Data/Hora da ocorrência: {error_time}",
-        f"Tipo de erro: {error_description}",
-    ]
-    
-    # Adicionar informações sobre registros afetados se disponível
-    if affected_count is not None:
-        summary.append(f"Quantidade de registros afetados: {affected_count}")
-    
-    # Adicionar identificação de registros com erro se disponível
-    if error_records:
-        records_str = ", ".join(str(record) for record in error_records[:10])  # Limitar a 10 registros
-        if len(error_records) > 10:
-            records_str += f"... (e mais {len(error_records) - 10})"
-        summary.append(f"Identificação de registros com erro: {records_str}")
-    
-    # Adicionar ação sugerida se disponível
-    if suggested_action:
-        summary.append(f"Ação sugerida para correção: {suggested_action}")
-    
-    # Enviar email de erro
-    send_email(subject, body, summary, None, "error")
-
-
-def send_error_email(error_time, error_description, affected_count=None, 
-                    error_records=None, suggested_action=None):
-    """
-    Envia email de erro conforme especificado na documentação
-    
-    Args:
-        error_time (str): Data/hora da ocorrência do erro
-        error_description (str): Descrição do erro
-        affected_count (int, optional): Quantidade de registros afetados
-        error_records (list, optional): Lista de registros com erro
-        suggested_action (str, optional): Ação sugerida para correção
-    """
-    # Configurar assunto do email
-    subject = "[FALHA] BOT - Conciliação de Fornecedores Itaminas"
-    
     # Corpo principal do email
     body = "Falha na execução do processo de conciliação de fornecedores. Verifique os logs em anexo para mais detalhes."
     
@@ -478,35 +434,7 @@ def excluir_arquivos_pasta(CAMINHO_PLS):
         
 
 
-def fechar_web_agent():
-    logger = configure_logger()
-    
-    # Fechar o Microsoft Edge
-    processo_nome = "msedge.exe"
-    
-    processos_fechados = 0
-    
-    for processo in psutil.process_iter(['pid', 'name']):
-        if processo.info['name'].lower() == processo_nome.lower():
-            try:
-                processo.terminate()
-                processo.wait(timeout=3)
-                logger.info(f"Microsoft Edge fechado (PID: {processo.info['pid']})")
-                processos_fechados += 1
-            except psutil.NoSuchProcess:
-                logger.warning("Processo do Edge já foi fechado")
-            except psutil.TimeoutExpired:
-                processo.kill()
-                logger.info(f"Microsoft Edge forçado a fechar (PID: {processo.info['pid']})")
-                processos_fechados += 1
-    
-    if processos_fechados > 0:
-        logger.info(f"Total de processos do Edge fechados: {processos_fechados}")
-        return True
-    else:
-        logger.warning("Microsoft Edge não encontrado em execução")
-        return False
-    
+
 def get_latest_file(folder: Path, prefix="CONCILIACAO_", extension=".xlsx"):
     """
     Retorna o caminho do arquivo mais recente na pasta `folder`
@@ -526,15 +454,6 @@ def main():
     """
     # Configurar logger
     logger = configure_logger()
-
-    settings=Settings()
-
-    # Execução do web agent
-    # os.startfile(settings.WEB_AGENT_PATH)
-    # logger.info("Web Agent iniciado")
-
-    # time.sleep(7)
-
 
     # Limpar pasta de dados antes de começar
     # quantidade = excluir_arquivos_pasta(settings.CAMINHO_PLS)

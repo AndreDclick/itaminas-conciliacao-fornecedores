@@ -168,6 +168,30 @@ class Utils:
         """
         return self._calcular_datas_contas_itens()
     
+    def ultimo_dia_mes_anterior(self):
+        """
+        Retorna o último dia do mês anterior.
+        Conforme documentação: 'Até data Contábil: último dia do mês anterior à data atual'
+        
+        Returns:
+            str: Último dia do mês anterior no formato DD/MM/YYYY
+        """
+        hoje = datetime.now()
+        
+        # Calcula mês e ano anterior
+        if hoje.month == 1:
+            mes_anterior = 12
+            ano_anterior = hoje.year - 1
+        else:
+            mes_anterior = hoje.month - 1
+            ano_anterior = hoje.year
+        
+        # Obtém o último dia do mês anterior
+        ultimo_dia = calendar.monthrange(ano_anterior, mes_anterior)[1]
+        data_ultimo_dia = datetime(ano_anterior, mes_anterior, ultimo_dia)
+        
+        return data_ultimo_dia.strftime('%d/%m/%Y')
+    
     def _resolver_valor(self, valor):
         """
         Resolve valores que contenham placeholders {{}} chamando funções correspondentes.
@@ -199,7 +223,8 @@ class Utils:
                 'obter_ultimo_dia_ano_passado': self.obter_ultimo_dia_ano_passado,
                 'data_atual': self._get_data_atual,
                 'datas_contas_itens': self.datas_contas_itens,
-                'data_futura': self.data_futura
+                'data_futura': self.data_futura,
+                'ultimo_dia_mes_anterior': self.ultimo_dia_mes_anterior
             }
             
             # Verifica se o método solicitado está disponível

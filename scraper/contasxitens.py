@@ -108,6 +108,9 @@ class Contas_x_itens(Utils):
             logger.info("Submenu Balancetes clicado")
             time.sleep(1)
             
+            if not self.locators['opcao_contas_x_itens'].is_visible():
+                self.locators['submenu_balancetes'].click()
+                time.sleep(1)
             # Seleciona a opção Contas X Itens
             self.locators['opcao_contas_x_itens'].wait_for(state="visible")
             self.locators['opcao_contas_x_itens'].click()

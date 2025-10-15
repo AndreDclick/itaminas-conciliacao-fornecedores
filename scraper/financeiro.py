@@ -115,7 +115,7 @@ class ExtracaoFinanceiro(Utils):
 
     
     def _confirmar_moeda(self):
-        time.sleep(5)
+        time.sleep(3)
         if self.locators['confirmar_moeda'].is_visible():
                 self.locators['botao_confirmar'].click()
 
@@ -164,8 +164,6 @@ class ExtracaoFinanceiro(Utils):
         ultimo_dia = calendar.monthrange(ano_mes_passado, mes_passado)[1]
         data_formatada = datetime(ano_mes_passado, mes_passado, ultimo_dia).strftime("%d/%m/%Y")
         return data_formatada
-
-    
 
     # Carrega os parâmetros definidos no JSON (parameters.json)
     def _preencher_parametros(self):

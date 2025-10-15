@@ -145,8 +145,8 @@ class Settings:
     
     # Lista de destinatários por tipo de email
     EMAILS = {
-        "success": ["andre.rodrigues@dclick.com.br"],  # Destinatários para emails de sucesso
-        "error": ["andre.rodrigues@dclick.com.br"]     # Destinatários para emails de erro
+        "success": ["andre.rodrigues@dclick.com.br", "talles.salmon@itaminas.com.br", "lucas.jesus@itaminas.com.br", "isabelle.gomes@itaminas.com.br", "joao.ferreira@itaminas.com.br"],  # Destinatários para emails de sucesso
+        "error": ["andre.rodrigues@dclick.com.br", "talles.salmon@itaminas.com.br", "lucas.jesus@itaminas.com.br", "isabelle.gomes@itaminas.com.br", "joao.ferreira@itaminas.com.br"]     # Destinatários para emails de erro
     }
 
     PASSWORD = os.getenv("PASSWORD", "") 
