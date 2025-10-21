@@ -939,96 +939,64 @@ class DatabaseManager:
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO}")
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO_ADIANTAMENTO}")
 
-            # 🔥 CORREÇÃO COMPLETA: Usar apenas CONTAS_ITENS e remover MODELO1
-            query_unificada = f"""
+            # 🔥 CORREÇÃO DEFINITIVA: Agrupa por código de fornecedor de forma consistente
+            query_consolidada = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO}
                 (codigo_fornecedor, descricao_fornecedor, saldo_financeiro, saldo_contabil, status)
                 
-                -- Subquery para fornecedores do financeiro
-                SELECT 
-                    TRIM(f.fornecedor) as codigo_fornecedor,
-                    TRIM(f.fornecedor) as descricao_fornecedor,
-                    SUM(COALESCE(f.valor_original, 0)) as saldo_financeiro,
-                    0 as saldo_contabil,  -- Inicialmente zero, será atualizado depois
-                    'Pendente' as status
-                FROM 
-                    {self.settings.TABLE_FINANCEIRO} f
-                WHERE 
-                    f.excluido = 0
-                    AND UPPER(f.tipo_titulo) IN ('NF','FT')
-                GROUP BY 
-                    TRIM(f.fornecedor)
-                
-                UNION
-                
-                -- Subquery para fornecedores contábeis que não existem no financeiro (USANDO APENAS CONTAS_ITENS)
-                SELECT 
-                    COALESCE(NULLIF(TRIM(ci.codigo_fornecedor), ''), ci.descricao_fornecedor) as codigo_fornecedor,
-                    COALESCE(NULLIF(TRIM(ci.descricao_fornecedor), ''), ci.descricao_item) as descricao_fornecedor,
-                    0 as saldo_financeiro,
-                    SUM(COALESCE(ci.saldo_atual, 0)) as saldo_contabil,
-                    'Pendente' as status
-                FROM 
-                    {self.settings.TABLE_CONTAS_ITENS} ci
-                WHERE 
-                    ci.conta_contabil LIKE '2.01.02.01.0001%'
-                    AND ci.codigo_fornecedor IS NOT NULL 
-                    AND ci.codigo_fornecedor != ''
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM {self.settings.TABLE_FINANCEIRO} f2
-                        WHERE TRIM(f2.fornecedor) = COALESCE(NULLIF(TRIM(ci.codigo_fornecedor), ''), ci.descricao_fornecedor)
-                    )
-                GROUP BY 
-                    COALESCE(NULLIF(TRIM(ci.codigo_fornecedor), ''), ci.descricao_fornecedor),
-                    COALESCE(NULLIF(TRIM(ci.descricao_fornecedor), ''), ci.descricao_item)
-            """
-            
-            cursor.execute(query_unificada)
-            
-            # 🔥 CORREÇÃO COMPLETA: Atualização usando APENAS CONTAS_ITENS
-            query_contabil_update = f"""
-                UPDATE {self.settings.TABLE_RESULTADO}
-                SET 
-                    saldo_contabil = (
-                        SELECT COALESCE(SUM(ci.saldo_atual), 0)
-                        FROM {self.settings.TABLE_CONTAS_ITENS} ci
-                        WHERE 
-                            (ci.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                            AND ci.codigo_fornecedor IS NOT NULL AND ci.codigo_fornecedor != '')
-                            OR (ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                            AND ci.descricao_fornecedor IS NOT NULL AND ci.descricao_fornecedor != '')
-                    ),
-                    detalhes = (
-                        SELECT GROUP_CONCAT(
-                            'Contas x Itens: ' || ci.descricao_item || 
-                            ' (Valor: R$ ' || ROUND(COALESCE(ci.saldo_atual, 0), 2) || ')', ' | '
-                        )
-                        FROM {self.settings.TABLE_CONTAS_ITENS} ci
-                        WHERE 
-                            (ci.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                            AND ci.codigo_fornecedor IS NOT NULL AND ci.codigo_fornecedor != '')
-                            OR (ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                            AND ci.descricao_fornecedor IS NOT NULL AND ci.descricao_fornecedor != '')
-                    )
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM {self.settings.TABLE_CONTAS_ITENS} ci2
-                    WHERE 
-                        (ci2.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                        AND ci2.codigo_fornecedor IS NOT NULL AND ci2.codigo_fornecedor != '')
-                        OR (ci2.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                        AND ci2.descricao_fornecedor IS NOT NULL AND ci2.descricao_fornecedor != '')
+                -- Primeiro: Busca e consolida TODOS os fornecedores únicos
+                WITH todos_fornecedores AS (
+                    -- Fornecedores do financeiro
+                    SELECT DISTINCT
+                        COALESCE(NULLIF(TRIM(codigo_fornecedor), ''), TRIM(fornecedor)) as codigo,
+                        COALESCE(NULLIF(TRIM(descricao_fornecedor), ''), TRIM(fornecedor)) as descricao
+                    FROM {self.settings.TABLE_FINANCEIRO}
+                    WHERE excluido = 0 AND UPPER(tipo_titulo) IN ('NF','FT')
+                    
+                    UNION
+                    
+                    -- Fornecedores contábeis
+                    SELECT DISTINCT
+                        COALESCE(NULLIF(TRIM(codigo_fornecedor), ''), TRIM(descricao_fornecedor)) as codigo,
+                        COALESCE(NULLIF(TRIM(descricao_fornecedor), ''), TRIM(descricao_item)) as descricao
+                    FROM {self.settings.TABLE_CONTAS_ITENS}
+                    WHERE conta_contabil LIKE '2.01.02.01.0001%'
                 )
+                
+                -- Segundo: Calcula totais financeiros e contábeis para cada fornecedor
+                SELECT 
+                    tf.codigo as codigo_fornecedor,
+                    tf.descricao as descricao_fornecedor,
+                    COALESCE((
+                        SELECT SUM(COALESCE(valor_original, 0))
+                        FROM {self.settings.TABLE_FINANCEIRO} f
+                        WHERE f.excluido = 0 
+                        AND UPPER(f.tipo_titulo) IN ('NF','FT')
+                        AND (COALESCE(NULLIF(TRIM(f.codigo_fornecedor), ''), TRIM(f.fornecedor)) = tf.codigo
+                            OR COALESCE(NULLIF(TRIM(f.descricao_fornecedor), ''), TRIM(f.fornecedor)) = tf.descricao)
+                    ), 0) as saldo_financeiro,
+                    
+                    COALESCE((
+                        SELECT SUM(COALESCE(saldo_atual, 0))
+                        FROM {self.settings.TABLE_CONTAS_ITENS} ci
+                        WHERE ci.conta_contabil LIKE '2.01.02.01.0001%'
+                        AND (COALESCE(NULLIF(TRIM(ci.codigo_fornecedor), ''), TRIM(ci.descricao_fornecedor)) = tf.codigo
+                            OR COALESCE(NULLIF(TRIM(ci.descricao_fornecedor), ''), TRIM(ci.descricao_item)) = tf.descricao)
+                    ), 0) as saldo_contabil,
+                    
+                    'Pendente' as status
+                    
+                FROM todos_fornecedores tf
+                WHERE tf.codigo IS NOT NULL AND tf.codigo != ''
             """
-            cursor.execute(query_contabil_update)
-                        
-            # Adiciona dados de adiantamentos
-            query_adiantamento = f"""
+            cursor.execute(query_consolidada)
+
+            # 🔥 CORREÇÃO: Adiciona adiantamentos aos saldos contábeis
+            cursor.execute(f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
                 SET 
                     saldo_contabil = saldo_contabil + (
-                        SELECT COALESCE(SUM(saldo_atual),0)
+                        SELECT COALESCE(SUM(saldo_atual), 0)
                         FROM {self.settings.TABLE_ADIANTAMENTO} a
                         WHERE a.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor
                     )
@@ -1037,24 +1005,49 @@ class DatabaseManager:
                     FROM {self.settings.TABLE_ADIANTAMENTO} a2
                     WHERE a2.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor
                 )
-            """
-            cursor.execute(query_adiantamento)
-            
-            # 🔥 REMOVIDA: Query para contábeis consolidados usando MODELO1
-            # Esta query estava inserindo dados do Balancete que não queremos mais
+            """)
+
+            # 🔥 CORREÇÃO: Garante que cada fornecedor apareça apenas UMA VEZ
+            # Se houver duplicatas, consolida em uma única linha
+            cursor.execute(f"""
+                CREATE TEMPORARY TABLE temp_consolidado AS
+                SELECT 
+                    codigo_fornecedor,
+                    MAX(descricao_fornecedor) as descricao_fornecedor,
+                    SUM(saldo_financeiro) as saldo_financeiro,
+                    SUM(saldo_contabil) as saldo_contabil,
+                    status
+                FROM {self.settings.TABLE_RESULTADO}
+                GROUP BY codigo_fornecedor
+            """)
+
+            # Limpa e reinsere os dados consolidados
+            cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO}")
+            cursor.execute(f"""
+                INSERT INTO {self.settings.TABLE_RESULTADO}
+                (codigo_fornecedor, descricao_fornecedor, saldo_financeiro, saldo_contabil, status)
+                SELECT 
+                    codigo_fornecedor,
+                    descricao_fornecedor,
+                    saldo_financeiro,
+                    saldo_contabil,
+                    status
+                FROM temp_consolidado
+            """)
+            cursor.execute("DROP TABLE IF EXISTS temp_consolidado")
             
             # Cálculo de diferenças e status
             query_diferenca = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
                 SET 
-                    diferenca = ROUND(COALESCE(saldo_contabil,0) - COALESCE(saldo_financeiro,0), 2),
+                    diferenca = ROUND(COALESCE(saldo_contabil, 0) - COALESCE(saldo_financeiro, 0), 2),
                     status = CASE 
                         WHEN saldo_contabil IS NULL AND saldo_financeiro IS NULL THEN 'Pendente'
-                        WHEN ABS(COALESCE(saldo_financeiro,0) - COALESCE(saldo_contabil,0)) <= 
+                        WHEN ABS(COALESCE(saldo_financeiro, 0) - COALESCE(saldo_contabil, 0)) <= 
                             (0.03 * CASE 
-                                WHEN ABS(COALESCE(saldo_contabil,0)) > ABS(COALESCE(saldo_financeiro,0)) 
-                                THEN ABS(COALESCE(saldo_contabil,0)) 
-                                ELSE ABS(COALESCE(saldo_financeiro,0)) 
+                                WHEN ABS(COALESCE(saldo_contabil, 0)) > ABS(COALESCE(saldo_financeiro, 0)) 
+                                THEN ABS(COALESCE(saldo_contabil, 0)) 
+                                ELSE ABS(COALESCE(saldo_financeiro, 0)) 
                             END)
                             THEN 'Conferido' 
                         ELSE 'Divergente' 
@@ -1065,29 +1058,12 @@ class DatabaseManager:
             # Query para investigação de divergências
             query_investigacao = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
-                SET detalhes = COALESCE(detalhes, '') || 
-                    ' | Divergência: R$ ' || ABS(diferenca) || 
-                    '. Itens Contábeis encontrados: ' || 
-                    COALESCE(
-                        (SELECT COUNT(*) || ' itens'
-                        FROM {self.settings.TABLE_CONTAS_ITENS} ci
-                        WHERE (ci.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                                OR ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor)
-                        AND ci.conta_contabil LIKE '2.01.02.01.0001%'),
-                        'Nenhum item específico encontrado'
-                    )
+                SET detalhes = 'Divergência: R$ ' || ABS(diferenca) || 
+                    ' | Financeiro: R$ ' || COALESCE(saldo_financeiro, 0) || 
+                    ' | Contábil: R$ ' || COALESCE(saldo_contabil, 0)
                 WHERE status = 'Divergente'
             """
             cursor.execute(query_investigacao)
-            
-            # Para fornecedores divergentes sem itens específicos
-            cursor.execute(f"""
-                UPDATE {self.settings.TABLE_RESULTADO}
-                SET detalhes = 'Divergência: R$ ' || ABS(diferenca) || 
-                            '. Investigar manualmente no sistema. Nenhum item contábil específico encontrado para análise automática.'
-                WHERE status = 'Divergente' 
-                AND (detalhes IS NULL OR detalhes = '')
-            """)
             
             # Classifica por ordem de importância
             try:
@@ -1096,30 +1072,17 @@ class DatabaseManager:
                     SET ordem_importancia = (
                         SELECT COUNT(*) 
                         FROM {self.settings.TABLE_RESULTADO} r2 
-                        WHERE ABS(COALESCE(r2.diferenca,0)) >= ABS(COALESCE({self.settings.TABLE_RESULTADO}.diferenca,0))
+                        WHERE ABS(COALESCE(r2.diferenca, 0)) >= ABS(COALESCE({self.settings.TABLE_RESULTADO}.diferenca, 0))
                     )
                 """)
             except Exception as rank_error:
                 logger.error(f"Erro ao classificar por importância: {rank_error}")
 
-            # Atualiza detalhes para registros não divergentes
-            cursor.execute(f"""
-                UPDATE {self.settings.TABLE_RESULTADO}
-                SET detalhes = 
-                    CASE 
-                        WHEN status = 'Conferido' THEN 'Conciliação dentro da tolerância'
-                        WHEN status = 'Pendente' THEN 'Financeiro: R$ ' || COALESCE(saldo_financeiro,0) || 
-                                                    ' | Contábil: R$ ' || COALESCE(saldo_contabil,0) || 
-                                                    ' | Diferença: R$ ' || COALESCE(diferenca,0)
-                        ELSE detalhes  -- Mantém os detalhes da investigação para divergências
-                    END
-            """)
-            
             # Processamento de adiantamentos
             self._process_adiantamentos()
 
             self.conn.commit()
-            logger.info("Processamento de dados concluído com sucesso - usando APENAS Contas x Itens para saldo contábil")
+            logger.info("Processamento de dados concluído com sucesso - fornecedores consolidados em uma linha")
             return True
             
         except Exception as e:
