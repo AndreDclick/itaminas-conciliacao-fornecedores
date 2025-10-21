@@ -1055,13 +1055,21 @@ class DatabaseManager:
             """
             cursor.execute(query_diferenca)
             
-            # Query para investigação de divergências
+            # Query para investigação de divergências - CORRIGIDA
             query_investigacao = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
-                SET detalhes = 'Divergência: R$ ' || ABS(diferenca) || 
-                    ' | Financeiro: R$ ' || COALESCE(saldo_financeiro, 0) || 
-                    ' | Contábil: R$ ' || COALESCE(saldo_contabil, 0)
-                WHERE status = 'Divergente'
+                SET detalhes = 
+                    CASE 
+                        WHEN status = 'Conferido' THEN 'Fornecedor conciliado'
+                        WHEN status = 'Divergente' AND saldo_financeiro IS NULL THEN 
+                            'Fornecedor contábil sem lançamento financeiro: R$ ' || COALESCE(saldo_contabil, 0)
+                        WHEN status = 'Divergente' AND saldo_contabil IS NULL THEN 
+                            'Fornecedor financeiro sem lançamento contábil: R$ ' || COALESCE(saldo_financeiro, 0)
+                        ELSE 'Diferença: R$ ' || ABS(COALESCE(diferenca, 0)) || 
+                            ' | Financeiro: R$ ' || COALESCE(saldo_financeiro, 0) ||
+                            ' | Contábil: R$ ' || COALESCE(saldo_contabil, 0)
+                    END
+                WHERE detalhes IS NULL OR detalhes = ''
             """
             cursor.execute(query_investigacao)
             
@@ -1355,7 +1363,6 @@ class DatabaseManager:
                         diff_cell.fill = yellow_fill
                         diff_cell.font = red_font
 
-                
                 # Formatação baseada no status
                 if status_idx:
                     status_cell = row[status_idx-1]  # -1 porque index começa em 0
@@ -1952,18 +1959,16 @@ class DatabaseManager:
                     SELECT 
                         codigo_fornecedor as "Código Fornecedor",
                         descricao_fornecedor as "Descrição Fornecedor",
-                        saldo_financeiro as "Saldo Financeiro",
-                        saldo_contabil as "Saldo Contábil",
-                        (ABS(saldo_financeiro) - saldo_contabil) as "Diferença",
-                        CASE 
-                            WHEN (saldo_contabil - saldo_financeiro) > 0 THEN 'Contábil > Financeiro'
-                            WHEN (saldo_contabil - saldo_financeiro) < 0 THEN 'Financeiro > Contábil'
-                            ELSE 'Zerado'
-                        END as "Status"
+                        saldo_financeiro as "Total Financeiro",
+                        saldo_contabil as "Total Contábil",
+                        diferenca as "Diferença",
+                        status as "Status",
+                        detalhes as "Detalhes"
                     FROM 
                         {self.settings.TABLE_RESULTADO}
                     ORDER BY 
-                        ABS(saldo_contabil - saldo_financeiro) DESC
+                        ABS(diferenca) DESC,
+                        codigo_fornecedor
                 """
                 df_resumo = pd.read_sql(query_resumo, self.conn)
                 
@@ -1976,7 +1981,7 @@ class DatabaseManager:
                     df_resumo = df_resumo[colunas_ordenadas]
 
                 # Garantir que as colunas sejam float antes de exportar
-                for col in [ "Saldo Financeiro", "Saldo Contábil", "Diferença"]:
+                for col in ["Total Financeiro", "Total Contábil", "Diferença"]:
                     if col in df_resumo.columns:
                         df_resumo[col] = pd.to_numeric(df_resumo[col], errors="coerce").fillna(0)
 
