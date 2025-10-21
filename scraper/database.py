@@ -1529,25 +1529,40 @@ class DatabaseManager:
             # Limpa a tabela de resultado_adiantamento
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO_ADIANTAMENTO}")
             
+            # 🔥 CORREÇÃO: Verifica se as colunas já existem antes de tentar adicioná-las
+            cursor.execute(f"PRAGMA table_info({self.settings.TABLE_FINANCEIRO})")
+            existing_columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'codigo_fornecedor' not in existing_columns:
+                cursor.execute("ALTER TABLE financeiro ADD COLUMN codigo_fornecedor TEXT")
+            
+            if 'descricao_fornecedor' not in existing_columns:
+                cursor.execute("ALTER TABLE financeiro ADD COLUMN descricao_fornecedor TEXT")
+            
+            # Atualiza as colunas com valores padrão se estiverem vazias
+            cursor.execute("UPDATE financeiro SET codigo_fornecedor = fornecedor WHERE codigo_fornecedor IS NULL")
+            cursor.execute("UPDATE financeiro SET descricao_fornecedor = fornecedor WHERE descricao_fornecedor IS NULL")
+
             # 🔥 CORREÇÃO: Insere dados financeiros de adiantamentos (NDF, PA)
             query_adiantamento_financeiro = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 (codigo_fornecedor, descricao_fornecedor, total_financeiro, status)
                 SELECT 
-                    TRIM(fornecedor) as codigo_fornecedor,
-                    TRIM(fornecedor) as descricao_fornecedor,
+                    COALESCE(NULLIF(TRIM(f.codigo_fornecedor), ''), TRIM(f.fornecedor)) as codigo_fornecedor,
+                    COALESCE(NULLIF(TRIM(f.descricao_fornecedor), ''), TRIM(f.fornecedor)) as descricao_fornecedor,
                     SUM(COALESCE(tit_vencidos_valor_nominal, 0) + COALESCE(titulos_a_vencer_valor_nominal, 0)) as total_financeiro, 
                     'Pendente' as status
                 FROM 
-                    {self.settings.TABLE_FINANCEIRO}
+                    {self.settings.TABLE_FINANCEIRO} f
                 WHERE 
                     excluido = 0
                     AND UPPER(tipo_titulo) IN ('NDF', 'PA')
                 GROUP BY 
-                    TRIM(fornecedor)
+                    COALESCE(NULLIF(TRIM(f.codigo_fornecedor), ''), TRIM(f.fornecedor)),
+                    COALESCE(NULLIF(TRIM(f.descricao_fornecedor), ''), TRIM(f.fornecedor))
             """
             cursor.execute(query_adiantamento_financeiro)
-            
+
             # 🔥 CORREÇÃO: Atualiza com dados contábeis de adiantamento
             query_contabil_update = f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
@@ -1599,16 +1614,21 @@ class DatabaseManager:
             """
             cursor.execute(query_contabeis_sem_match)
             
-            # 🔥 CORREÇÃO: Calcula diferenças e define status para adiantamentos
+            
             query_diferenca = f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 SET 
-                    diferenca = ROUND(COALESCE(total_financeiro, 0) - COALESCE(total_contabil, 0), 2),
+                    diferenca = ROUND(COALESCE(total_financeiro, 0) + COALESCE(total_contabil, 0), 2),
                     status = CASE 
                         WHEN total_contabil IS NULL AND total_financeiro IS NULL THEN 'Pendente'
                         WHEN total_contabil IS NULL AND total_financeiro IS NOT NULL THEN 'Divergente'
                         WHEN total_financeiro IS NULL AND total_contabil IS NOT NULL THEN 'Divergente'
-                        WHEN ABS(COALESCE(total_financeiro, 0) - COALESCE(total_contabil, 0)) <= 0.01  -- Tolerância de 1 centavo
+                        WHEN ABS(COALESCE(total_financeiro, 0) + COALESCE(total_contabil, 0)) <= 
+                            (0.03 * CASE 
+                                WHEN ABS(COALESCE(total_contabil, 0)) > ABS(COALESCE(total_financeiro, 0)) 
+                                THEN ABS(COALESCE(total_contabil, 0)) 
+                                ELSE ABS(COALESCE(total_financeiro, 0)) 
+                            END)
                             THEN 'Conferido' 
                         ELSE 'Divergente' 
                     END
