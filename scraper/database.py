@@ -1704,15 +1704,15 @@ class DatabaseManager:
 
                     -- Diferença CORRETA
                     (
-                        (SELECT ABS(COALESCE(SUM(COALESCE(tit_vencidos_valor_nominal,0) 
+                    (SELECT ABS(COALESCE(SUM(COALESCE(tit_vencidos_valor_nominal,0) 
                                                     + COALESCE(titulos_a_vencer_valor_nominal,0)), 0))
                         FROM {self.settings.TABLE_FINANCEIRO}
                         WHERE excluido = 0
                         AND UPPER(tipo_titulo) IN ('NF','FT'))
                         -
-                        (SELECT COALESCE(SUM(ci.saldo_atual), 0)
+                        ABS((SELECT COALESCE(SUM(ci.saldo_atual), 0)
                         FROM {self.settings.TABLE_CONTAS_ITENS} ci
-                        WHERE ci.conta_contabil LIKE '2.01.02.01.0001%')
+                        WHERE ci.conta_contabil LIKE '2.01.02.01.0001%'))
                     ) as diferenca_geral,
 
                     -- Total de divergência
