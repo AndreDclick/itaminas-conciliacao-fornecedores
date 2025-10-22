@@ -370,7 +370,7 @@ class DatabaseManager:
                 remaining_missing = [col for col in expected_columns if col not in df.columns]
 
                 if remaining_missing:
-                    # 🔥 TRECHO CORRIGIDO: Tratamento específico para colunas ausentes
+                    #  TRECHO CORRIGIDO: Tratamento específico para colunas ausentes
                     # Tenta criar colunas ausentes com valores padrão
                     if 'parcela' in remaining_missing and 'titulo' in df.columns:
                         df['parcela'] = df['titulo'].astype(str).str.extract(r'(\d+)$').fillna('1')
@@ -382,7 +382,7 @@ class DatabaseManager:
                         logger.warning("Coluna 'conta_contabil' preenchida com valor padrão para arquivo financeiro")
                         remaining_missing.remove('conta_contabil')
 
-                    # 🔥 NOVO: Para saldo_devedor, calculamos a partir das novas colunas J e K
+                    #  NOVO: Para saldo_devedor, calculamos a partir das novas colunas J e K
                     if 'saldo_devedor' in remaining_missing:
                         # Verifica se temos as colunas J e K para calcular o saldo_devedor
                         if 'tit_vencidos_valor_nominal' in df.columns and 'titulos_a_vencer_valor_nominal' in df.columns:
@@ -939,7 +939,7 @@ class DatabaseManager:
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO}")
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO_ADIANTAMENTO}")
 
-            # 🔥 CORREÇÃO: Query consolidada para fornecedores do financeiro (NF/FT)
+            #  CORREÇÃO: Query consolidada para fornecedores do financeiro (NF/FT)
             query_consolidada = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO}
                 (codigo_fornecedor, descricao_fornecedor, saldo_financeiro, saldo_contabil, status)
@@ -962,7 +962,7 @@ class DatabaseManager:
             """
             cursor.execute(query_consolidada)
 
-            # 🔥 CORREÇÃO CRÍTICA: Atualiza com valores contábeis APENAS da conta correta (Fornecedores Nacionais)
+            #  CORREÇÃO CRÍTICA: Atualiza com valores contábeis APENAS da conta correta (Fornecedores Nacionais)
             query_atualiza_contabil = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
                 SET 
@@ -970,15 +970,11 @@ class DatabaseManager:
                         SELECT COALESCE(SUM(ci.saldo_atual), 0)
                         FROM {self.settings.TABLE_CONTAS_ITENS} ci
                         WHERE 
-                            -- 🔥 FILTRO DA CONTA CONTÁBIL CORRETA para Fornecedores Nacionais
                             ci.conta_contabil LIKE '2.01.02.01.0001%'
-                            AND (
-                                (ci.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                                AND ci.codigo_fornecedor IS NOT NULL AND ci.codigo_fornecedor != '')
-                                OR (ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                                AND ci.descricao_fornecedor IS NOT NULL AND ci.descricao_fornecedor != '')
-                                OR (ci.codigo_fornecedor IS NULL AND ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor)
-                            )
+                            AND REPLACE(REPLACE(UPPER(TRIM(ci.codigo_fornecedor)), 'AF', ''), 'F', '') =
+                                REPLACE(REPLACE(UPPER(TRIM({self.settings.TABLE_RESULTADO}.codigo_fornecedor)), 'AF', ''), 'F', '')
+                            AND ci.codigo_fornecedor IS NOT NULL
+                            AND ci.codigo_fornecedor != ''
                     ),
                     detalhes = (
                         SELECT GROUP_CONCAT(
@@ -989,31 +985,27 @@ class DatabaseManager:
                         FROM {self.settings.TABLE_CONTAS_ITENS} ci
                         WHERE 
                             ci.conta_contabil LIKE '2.01.02.01.0001%'
-                            AND (
-                                (ci.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                                AND ci.codigo_fornecedor IS NOT NULL AND ci.codigo_fornecedor != '')
-                                OR (ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                                AND ci.descricao_fornecedor IS NOT NULL AND ci.descricao_fornecedor != '')
-                                OR (ci.codigo_fornecedor IS NULL AND ci.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor)
-                            )
+                            AND REPLACE(REPLACE(UPPER(TRIM(ci.codigo_fornecedor)), 'AF', ''), 'F', '') =
+                                REPLACE(REPLACE(UPPER(TRIM({self.settings.TABLE_RESULTADO}.codigo_fornecedor)), 'AF', ''), 'F', '')
+                            AND ci.codigo_fornecedor IS NOT NULL
+                            AND ci.codigo_fornecedor != ''
                     )
                 WHERE EXISTS (
                     SELECT 1
                     FROM {self.settings.TABLE_CONTAS_ITENS} ci2
                     WHERE 
                         ci2.conta_contabil LIKE '2.01.02.01.0001%'
-                        AND (
-                            (ci2.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor 
-                            AND ci2.codigo_fornecedor IS NOT NULL AND ci2.codigo_fornecedor != '')
-                            OR (ci2.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor
-                            AND ci2.descricao_fornecedor IS NOT NULL AND ci2.descricao_fornecedor != '')
-                            OR (ci2.codigo_fornecedor IS NULL AND ci2.descricao_fornecedor = {self.settings.TABLE_RESULTADO}.descricao_fornecedor)
-                        )
+                        AND REPLACE(REPLACE(UPPER(TRIM(ci2.codigo_fornecedor)), 'AF', ''), 'F', '') =
+                            REPLACE(REPLACE(UPPER(TRIM({self.settings.TABLE_RESULTADO}.codigo_fornecedor)), 'AF', ''), 'F', '')
+                        AND ci2.codigo_fornecedor IS NOT NULL
+                        AND ci2.codigo_fornecedor != ''
                 )
             """
+
+
             cursor.execute(query_atualiza_contabil)
 
-            # 🔥 CORREÇÃO: Adiciona adiantamentos aos saldos contábeis (conta específica)
+            #  CORREÇÃO: Adiciona adiantamentos aos saldos contábeis (conta específica)
             query_adiantamento = f"""
                 UPDATE {self.settings.TABLE_RESULTADO}
                 SET 
@@ -1021,7 +1013,7 @@ class DatabaseManager:
                         SELECT COALESCE(SUM(saldo_atual), 0)
                         FROM {self.settings.TABLE_ADIANTAMENTO} a
                         WHERE 
-                            -- 🔥 FILTRO DA CONTA DE ADIANTAMENTO
+                            --  FILTRO DA CONTA DE ADIANTAMENTO
                             a.conta_contabil LIKE '1.01.06.02.0001%'
                             AND a.codigo_fornecedor = {self.settings.TABLE_RESULTADO}.codigo_fornecedor
                     )
@@ -1035,7 +1027,7 @@ class DatabaseManager:
             """
             cursor.execute(query_adiantamento)
 
-            # 🔥 CORREÇÃO: Insere fornecedores contábeis que não existem no financeiro
+            #  CORREÇÃO: Insere fornecedores contábeis que não existem no financeiro
             query_contabeis_faltantes = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO}
                 (codigo_fornecedor, descricao_fornecedor, saldo_financeiro, saldo_contabil, status)
@@ -1493,7 +1485,7 @@ class DatabaseManager:
             # Limpa a tabela de resultado_adiantamento
             cursor.execute(f"DELETE FROM {self.settings.TABLE_RESULTADO_ADIANTAMENTO}")
             
-            # 🔥 CORREÇÃO: Verifica se as colunas já existem antes de tentar adicioná-las
+            #  CORREÇÃO: Verifica se as colunas já existem antes de tentar adicioná-las
             cursor.execute(f"PRAGMA table_info({self.settings.TABLE_FINANCEIRO})")
             existing_columns = [col[1] for col in cursor.fetchall()]
             
@@ -1507,7 +1499,7 @@ class DatabaseManager:
             cursor.execute("UPDATE financeiro SET codigo_fornecedor = fornecedor WHERE codigo_fornecedor IS NULL")
             cursor.execute("UPDATE financeiro SET descricao_fornecedor = fornecedor WHERE descricao_fornecedor IS NULL")
 
-            # 🔥 CORREÇÃO: Insere dados financeiros de adiantamentos (NDF, PA)
+            #  CORREÇÃO: Insere dados financeiros de adiantamentos (NDF, PA)
             query_adiantamento_financeiro = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 (codigo_fornecedor, descricao_fornecedor, total_financeiro, status)
@@ -1527,7 +1519,7 @@ class DatabaseManager:
             """
             cursor.execute(query_adiantamento_financeiro)
 
-            # 🔥 CORREÇÃO: Atualiza com dados contábeis de adiantamento
+            #  CORREÇÃO: Atualiza com dados contábeis de adiantamento
             query_contabil_update = f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 SET 
@@ -1552,7 +1544,7 @@ class DatabaseManager:
             """
             cursor.execute(query_contabil_update)
             
-            # 🔥 CORREÇÃO: Insere adiantamentos contábeis que não tiveram match financeiro
+            #  CORREÇÃO: Insere adiantamentos contábeis que não tiveram match financeiro
             query_contabeis_sem_match = f"""
                 INSERT INTO {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 (codigo_fornecedor, descricao_fornecedor, total_contabil, status, detalhes)
@@ -1599,7 +1591,7 @@ class DatabaseManager:
             """
             cursor.execute(query_diferenca)
             
-            # 🔥 CORREÇÃO: Atualiza detalhes para registros divergentes
+            #  CORREÇÃO: Atualiza detalhes para registros divergentes
             cursor.execute(f"""
                 UPDATE {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
                 SET detalhes = 
@@ -1697,7 +1689,7 @@ class DatabaseManager:
             export_type: Tipo de exportação - "all", "fornecedores", "adiantamentos"
         """
         data_inicial_str, data_final_str = self._get_datas_referencia()
-    
+
         try:
             # Converte de DD/MM/YYYY para datetime e depois para o formato desejado
             data_inicial = datetime.strptime(data_inicial_str, '%d/%m/%Y').strftime('%d/%m/%Y')
@@ -1705,7 +1697,6 @@ class DatabaseManager:
         except Exception:
             # Se já estiverem no formato correto ou houver erro, usa diretamente
             data_inicial, data_final = data_inicial_str, data_final_str
-    
 
         # Define os caminhos dos arquivos
         base_filename = f"CONCILIACAO_{data_inicial.replace('/', '-')}_a_{data_final.replace('/', '-')}"
@@ -1984,21 +1975,58 @@ class DatabaseManager:
                         detalhes as "Detalhes"
                     FROM 
                         {self.settings.TABLE_RESULTADO_ADIANTAMENTO}
+                    WHERE 
+                        -- FILTRO DIRETO NO SQL: Remove registros com código vazio
+                        codigo_fornecedor IS NOT NULL 
+                        AND codigo_fornecedor != ''
+                        AND TRIM(codigo_fornecedor) != ''
                     ORDER BY 
                         ABS(diferenca) DESC,
                         codigo_fornecedor
                 """
                 df_resumo_adiantamento = pd.read_sql(query_resumo_adiantamento, self.conn)
                 
+                # MESMO TRATAMENTO ROBUSTO PARA ADIANTAMENTOS
+                antes = len(df_resumo_adiantamento)
+                df_resumo_adiantamento = df_resumo_adiantamento[
+                    df_resumo_adiantamento["Código Fornecedor"].notna() & 
+                    (df_resumo_adiantamento["Código Fornecedor"].astype(str).str.strip() != "") &
+                    (df_resumo_adiantamento["Código Fornecedor"].astype(str).str.strip() != "None") &
+                    (df_resumo_adiantamento["Código Fornecedor"].astype(str).str.strip() != "nan")
+                ]
+                depois = len(df_resumo_adiantamento)
+                
+                if antes > depois:
+                    logger.warning(f"Removidas {antes - depois} linhas com código vazio do resumo de adiantamentos")
+                
                 # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-                if "Código Fornecedor" in df_resumo_adiantamento.columns:
+                if "Código Fornecedor" in df_resumo_adiantamento.columns and len(df_resumo_adiantamento) > 0:
                     df_resumo_adiantamento = self.separar_codigo_descricao(df_resumo_adiantamento, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # FILTRO EXTRA APÓS SEPARAÇÃO
+                    antes_sep = len(df_resumo_adiantamento)
+                    df_resumo_adiantamento = df_resumo_adiantamento[
+                        df_resumo_adiantamento["Código"].notna() & 
+                        (df_resumo_adiantamento["Código"].astype(str).str.strip() != "") &
+                        (df_resumo_adiantamento["Código"].astype(str).str.strip() != "None") &
+                        (df_resumo_adiantamento["Código"].astype(str).str.strip() != "nan")
+                    ]
+                    depois_sep = len(df_resumo_adiantamento)
+                    
+                    if antes_sep > depois_sep:
+                        logger.warning(f"Removidas {antes_sep - depois_sep} linhas com código vazio após separação (adiantamentos)")
                     
                     # Reorganizar colunas
                     colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo_adiantamento.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
                     df_resumo_adiantamento = df_resumo_adiantamento[colunas_ordenadas]
                 
-                df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
+                if len(df_resumo_adiantamento) > 0:
+                    df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
+                else:
+                    colunas = ["Código", "Descrição Fornecedor", "Total Financeiro", "Total Contábil", "Diferença", "Status", "Detalhes"]
+                    df_resumo_adiantamento = pd.DataFrame(columns=colunas)
+                    df_resumo_adiantamento.to_excel(writer, sheet_name='Resumo Adiantamentos', index=False)
+                    logger.warning("Resumo Adiantamentos está vazio - criando planilha vazia")
 
             # ABA: "Resumo da Conciliação" (Principal) - APENAS PARA FORNECEDORES
             if export_type in ["all", "fornecedores"]:
@@ -2013,15 +2041,53 @@ class DatabaseManager:
                         detalhes as "Detalhes"
                     FROM 
                         {self.settings.TABLE_RESULTADO}
+                    WHERE 
+                        -- FILTRO DIRETO NO SQL: Remove registros com código vazio
+                        codigo_fornecedor IS NOT NULL 
+                        AND codigo_fornecedor != ''
+                        AND TRIM(codigo_fornecedor) != ''
                     ORDER BY 
                         ABS(diferenca) DESC,
                         codigo_fornecedor
                 """
                 df_resumo = pd.read_sql(query_resumo, self.conn)
                 
+                # LOG DETALHADO PARA DEBUG
+                logger.info(f"Total de registros no resumo após filtro SQL: {len(df_resumo)}")
+                
+                # VERIFICAÇÃO EXTRA: Remove qualquer linha que ainda possa ter código vazio
+                antes = len(df_resumo)
+                df_resumo = df_resumo[
+                    df_resumo["Código Fornecedor"].notna() & 
+                    (df_resumo["Código Fornecedor"].astype(str).str.strip() != "") &
+                    (df_resumo["Código Fornecedor"].astype(str).str.strip() != "None") &
+                    (df_resumo["Código Fornecedor"].astype(str).str.strip() != "nan")
+                ]
+                depois = len(df_resumo)
+                
+                if antes > depois:
+                    logger.warning(f"Removidas {antes - depois} linhas com código vazio após filtro extra")
+                
+                # LOG DOS PRIMEIROS REGISTROS PARA VERIFICAÇÃO
+                if len(df_resumo) > 0:
+                    logger.info(f"Primeiros 5 códigos no resumo: {df_resumo['Código Fornecedor'].head().tolist()}")
+                
                 # APLICAR SEPARAÇÃO SE A COLUNA CÓDIGO FORNECEDOR CONTÉM CÓDIGO-DESCRIÇÃO
-                if "Código Fornecedor" in df_resumo.columns:
+                if "Código Fornecedor" in df_resumo.columns and len(df_resumo) > 0:
                     df_resumo = self.separar_codigo_descricao(df_resumo, "Código Fornecedor", "Código", "Descrição Fornecedor")
+                    
+                    # FILTRO EXTRA APÓS SEPARAÇÃO: Remove linhas onde o código ficou vazio após separação
+                    antes_sep = len(df_resumo)
+                    df_resumo = df_resumo[
+                        df_resumo["Código"].notna() & 
+                        (df_resumo["Código"].astype(str).str.strip() != "") &
+                        (df_resumo["Código"].astype(str).str.strip() != "None") &
+                        (df_resumo["Código"].astype(str).str.strip() != "nan")
+                    ]
+                    depois_sep = len(df_resumo)
+                    
+                    if antes_sep > depois_sep:
+                        logger.warning(f"Removidas {antes_sep - depois_sep} linhas com código vazio após separação")
                     
                     # Reorganizar colunas
                     colunas_ordenadas = ["Código", "Descrição Fornecedor"] + [col for col in df_resumo.columns if col not in ["Código", "Descrição Fornecedor", "Código Fornecedor"]]
@@ -2032,7 +2098,17 @@ class DatabaseManager:
                     if col in df_resumo.columns:
                         df_resumo[col] = pd.to_numeric(df_resumo[col], errors="coerce").fillna(0)
 
-                df_resumo.to_excel(writer, sheet_name='Resumo da Conciliação', index=False)
+                # LOG FINAL ANTES DE EXPORTAR
+                logger.info(f"Total final de registros no resumo: {len(df_resumo)}")
+                
+                if len(df_resumo) > 0:
+                    df_resumo.to_excel(writer, sheet_name='Resumo da Conciliação', index=False)
+                else:
+                    # Cria um DataFrame vazio com as colunas corretas para evitar erro
+                    colunas = ["Código", "Descrição Fornecedor", "Total Financeiro", "Total Contábil", "Diferença", "Status", "Detalhes"]
+                    df_resumo = pd.DataFrame(columns=colunas)
+                    df_resumo.to_excel(writer, sheet_name='Resumo da Conciliação', index=False)
+                    logger.warning("Resumo da Conciliação está vazio - criando planilha vazia")
 
             # Query para estatísticas de adiantamentos
             query_adiantamento_stats = f"""
@@ -2218,7 +2294,6 @@ class DatabaseManager:
             error_msg = f"Erro ao exportar resultados: {e}"
             logger.error(error_msg)
             raise ResultsSaveError(error_msg, caminho=output_path) from e
-        
     
 
     def validate_output(self, output_path, export_type="all"):
