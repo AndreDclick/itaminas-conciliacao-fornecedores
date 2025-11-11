@@ -286,6 +286,6 @@ class ExtracaoFinanceiro(Utils):
             }
             
         except Exception as e:
-            error_msg = f"❌ Falha na execução: {str(e)}"
+            error_msg = f" Falha na execução: {str(e)}"
             logger.error(error_msg)
             return {'status': 'error', 'message': error_msg}

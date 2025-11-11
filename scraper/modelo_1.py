@@ -276,7 +276,7 @@ class Modelo_1(Utils):
             self._selecionar_filiais()
             self._gerar_planilha()
             
-            logger.info("✅ Modelo 1 executado com sucesso")
+            logger.info(" Modelo 1 executado com sucesso")
             return {
                 'status': 'success',
                 'message': 'Modelo 1 completo'

@@ -38,17 +38,17 @@ def setup_environment():
     # Carregar .env
     if env_path.exists():
         load_dotenv(env_path)
-        print(f"✅ .env carregado de: {env_path}")
+        print(f" .env carregado de: {env_path}")
         
         # Verificar se as variáveis foram carregadas
         test_vars = ['USUARIO', 'BASE_URL']
         for var in test_vars:
             value = os.getenv(var)
-            print(f"   {var}: {'✅' if value else '❌'} {'***' if var == 'USUARIO' and value else value}")
+            print(f"   {var}: {'' if value else ''} {'***' if var == 'USUARIO' and value else value}")
         
         return True
     else:
-        print(f"❌ .env NÃO encontrado em: {env_path}")
+        print(f" .env NÃO encontrado em: {env_path}")
         print(f" Conteúdo do diretório:")
         try:
             for item in base_path.iterdir():
@@ -244,7 +244,7 @@ class Settings:
         os.makedirs(self.DATA_DIR, exist_ok=True)
         os.makedirs(self.LOGS_DIR, exist_ok=True)
         os.makedirs(self.RESULTS_DIR, exist_ok=True)
-        print("✅ Diretórios do sistema verificados/criados")
+        print(" Diretórios do sistema verificados/criados")
 
     def _validate_required_vars(self):
         """Valida se as variáveis obrigatórias estão presentes e corretas."""
@@ -264,7 +264,7 @@ class Settings:
         
         if missing_vars:
             error_msg = f"Variáveis de ambiente obrigatórias não carregadas: {', '.join(missing_vars)}"
-            print(f"❌ {error_msg}")
+            print(f" {error_msg}")
             # Não levanta exceção imediatamente, apenas registra o erro
             # raise ValueError(error_msg)
 
@@ -272,6 +272,6 @@ class Settings:
 try:
     settings = Settings()
 except Exception as e:
-    print(f"❌ Erro crítico ao inicializar Settings: {e}")
+    print(f" Erro crítico ao inicializar Settings: {e}")
     # Cria uma instância básica para evitar falha completa
     settings = None

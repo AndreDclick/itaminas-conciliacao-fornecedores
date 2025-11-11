@@ -195,7 +195,7 @@ def send_success_email(completion_time, processed_count, error_count, report_pat
     #         [],
     #         attachments,
     #     )
-    #     logging.info("✅ E-mail enviado com sucesso via Office 365")
+    #     logging.info(" E-mail enviado com sucesso via Office 365")
     #     success = True
     # except Exception as e:
     #     logging.warning(f"Falha no envio via Office 365: {e}")
@@ -213,9 +213,9 @@ def send_success_email(completion_time, processed_count, error_count, report_pat
                 html_content,
                 attachments=attachments,
             )
-            logging.info("✅ E-mail enviado com sucesso via Gmail (fallback)")
+            logging.info(" E-mail enviado com sucesso via Gmail (fallback)")
         except Exception as e:
-            logging.error(f"❌ Falha total no envio de e-mail: {e}")
+            logging.error(f" Falha total no envio de e-mail: {e}")
 
 def send_email(subject, body, summary, attachments=None, email_type="success"):
     """

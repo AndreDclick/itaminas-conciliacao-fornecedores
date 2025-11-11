@@ -344,7 +344,7 @@ class ProtheusScraper(Utils):
                                     'etapa': 'importação',
                                     'error_code': None
                                 })
-                                logger.info(f"✅ {arquivo} importado para {tabela}")
+                                logger.info(f" {arquivo} importado para {tabela}")
                             else:
                                 raise Exception(f"Falha na importação do arquivo {arquivo}")
                                 
@@ -355,7 +355,7 @@ class ProtheusScraper(Utils):
                                 'etapa': 'importação',
                                 'error_code': getattr(e, 'code', 'FE3') if hasattr(e, 'code') else 'FE3'
                             })
-                            logger.error(f"❌ Erro ao importar {arquivo}: {e}")
+                            logger.error(f" Erro ao importar {arquivo}: {e}")
 
                     # Processar dados apenas se pelo menos uma importação teve sucesso
                     if importacoes_realizadas > 0:
@@ -373,7 +373,7 @@ class ProtheusScraper(Utils):
                                     'etapa': 'processamento',
                                     'error_code': None
                                 })
-                                logger.info(f"✅ Planilha de fornecedores gerada: {output_path_fornecedores}")
+                                logger.info(f" Planilha de fornecedores gerada: {output_path_fornecedores}")
                             
                             # Planilha de adiantamentos
                             output_path_adiantamentos = db.export_to_excel(export_type="adiantamentos")
@@ -384,11 +384,11 @@ class ProtheusScraper(Utils):
                                     'etapa': 'processamento',
                                     'error_code': None
                                 })
-                                logger.info(f"✅ Planilha de adiantamentos gerada: {output_path_adiantamentos}")
+                                logger.info(f" Planilha de adiantamentos gerada: {output_path_adiantamentos}")
                             
                             # Verificar se pelo menos uma planilha foi gerada
                             if output_path_fornecedores or output_path_adiantamentos:
-                                logger.info("✅ Todas as planilhas foram geradas com sucesso")
+                                logger.info(" Todas as planilhas foram geradas com sucesso")
                             else:
                                 results.append({
                                     'status': 'error',
@@ -410,7 +410,7 @@ class ProtheusScraper(Utils):
                             'etapa': 'importação',
                             'error_code': 'DB003'
                         })
-                        logger.error("❌ Nenhum arquivo importado, pulando processamento")
+                        logger.error(" Nenhum arquivo importado, pulando processamento")
 
             except Exception as e:
                 # Falha crítica no processamento do banco

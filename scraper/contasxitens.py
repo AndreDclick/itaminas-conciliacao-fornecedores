@@ -341,7 +341,7 @@ class Contas_x_itens(Utils):
             self._preencher_parametros(conta)  
             self._selecionar_filiais()  
             self._gerar_planilha(conta)
-            logger.info(f"✅ Conta {conta} processada com sucesso")
+            logger.info(f" Conta {conta} processada com sucesso")
             
         except Exception as e:
             error_msg = f"Falha no processamento da conta {conta}"
